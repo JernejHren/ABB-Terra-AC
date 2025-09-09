@@ -1,0 +1,11 @@
+{
+    "domain": "abb_terra_ac",
+    "name": "ABB Terra AC Modbus",
+    "config_flow": true,
+    "documentation": "https://github.com/JernejHren/ABB-Terra-AC",
+    "issue_tracker": "https://github.com/JernejHren/ABB-Terra-AC/issues",
+    "codeowners": ["@JernejHren"],
+    "requirements": ["pymodbus>=3.9.2"],
+    "version": "0.1.0",
+    "iot_class": "local_polling"
+}
