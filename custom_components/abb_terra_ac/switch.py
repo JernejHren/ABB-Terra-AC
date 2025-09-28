@@ -36,10 +36,11 @@ class AbbTerraAcChargingSwitch(AbbTerraAcBaseSwitch):
         
     @property
     def is_on(self):
-        """Vrne True samo takrat, ko polnilnica aktivno polni (State C2)."""
+        """Vrne True, če je polnilna seja aktivna (stanje B2, C1 ali C2)."""
         charging_state = self.coordinator.data.get("charging_state")
-        # Stanje 4 (C2) je aktivno polnjenje
-        return charging_state == 4
+        # Seznam stanj, ki predstavljajo aktivno polnilno sejo
+        active_session_states = [2, 3, 4]
+        return charging_state in active_session_states
 
     async def async_turn_on(self, **kwargs):
         """Začne sejo polnjenja in počaka pred osvežitvijo."""
