@@ -16,7 +16,7 @@ This integration creates the following entities in Home Assistant:
 
 ## ⚠️ Important Information
 
-- **Modbus TCP Only**: This integration works exclusively over **Modbus TCP** (via an Ethernet or WiFi connection). It does not support Modbus RTU (via RS485).
+- **Modbus TCP Only**: This integration works exclusively over **Modbus TCP** (only via an Ethernet). It does not support Modbus RTU (via RS485).
 - **Single Active Connection**: The ABB Terra AC charger only allows **one active Modbus TCP session at a time**. Before using this integration, please ensure that no other applications or scripts (like diagnostic tools or other control systems) are connected to the charger. If another connection is active, this integration will fail to communicate.
 
 ---
