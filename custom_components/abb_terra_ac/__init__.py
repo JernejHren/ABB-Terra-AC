@@ -97,6 +97,31 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator):
             data["charging_current_limit_modbus"] = self._decode_32bit_value(registers[34:36], 0.001)
             data["fallback_limit"] = registers[36]
 
+            # --- ZAČETEK SPREMEMBE: Preverjanje in popravek Fallback Limita ---
+            
+            fallback_limit = data["fallback_limit"]
+            # Preverimo, ali je vrednost neveljavna (večja od 32A)
+            if fallback_limit > 32:
+                _LOGGER.warning(
+                    f"Zaznana neveljavna vrednost za 'fallback limit': {fallback_limit}A "
+                    "(verjetno napaka v firmware). Ponavstavljam na 6A."
+                )
+                try:
+                    # Naslov registra = 16384 (začetek) + 36 (indeks) = 16420
+                    write_result = await self.client.write_register(address=16420, value=6)
+                    
+                    if write_result.isError():
+                        _LOGGER.error(f"Napaka pri pisanju nove 'fallback' vrednosti: {write_result}")
+                    else:
+                        _LOGGER.info("Uspešno ponastavljena 'fallback' vrednost na 6A.")
+                        # Takoj posodobimo podatke v koordinatorju za ta cikel
+                        data["fallback_limit"] = 6
+                        
+                except Exception as e:
+                    _LOGGER.error(f"Napaka med pisanjem 'fallback' vrednosti: {e}")
+
+            # --- KONEC SPREMEMBE ---
+
             return data
 
         except (ConnectionException, asyncio.TimeoutError) as err:
