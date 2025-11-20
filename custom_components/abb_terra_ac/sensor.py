@@ -12,7 +12,8 @@ from homeassistant.const import (
 )
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, CHARGING_STATES
+# Dodan uvoz novih konstant
+from .const import DOMAIN, CHARGING_STATES, ERROR_CODES, SOCKET_LOCK_STATES
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Nastavi senzorje iz konfiguracijskega vnosa."""
@@ -23,6 +24,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         AbbTerraAcSerialNumberSensor(coordinator, entry),
         AbbTerraAcFirmwareSensor(coordinator, entry),
         AbbTerraAcErrorCodeSensor(coordinator, entry),
+        # Dodan senzor za zaklep
+        AbbTerraAcSocketLockStateSensor(coordinator, entry),
         AbbTerraAcActivePowerSensor(coordinator, entry),
         AbbTerraAcEnergyDeliveredSensor(coordinator, entry),
         AbbTerraAcCurrentL1Sensor(coordinator, entry),
@@ -92,6 +95,10 @@ class AbbTerraAcFirmwareSensor(AbbTerraAcBaseSensor):
         return self.coordinator.data.get("firmware_version")
 
 class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
+    # Dodan enum za lepši prikaz zgodovine
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(ERROR_CODES.values())
+
     def __init__(self, coordinator, entry):
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Error Code"
@@ -100,8 +107,26 @@ class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
 
     @property
     def state(self):
+        # Uporaba tabele za prevod kode v besedilo
         error_code = self.coordinator.data.get("error_code")
-        return "No error" if error_code == 0 else str(error_code)
+        return ERROR_CODES.get(error_code, f"Unknown Error ({error_code})")
+
+# Nov razred za Socket Lock
+class AbbTerraAcSocketLockStateSensor(AbbTerraAcBaseSensor):
+    """Senzor za stanje zaklepa vtičnice."""
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(SOCKET_LOCK_STATES.values())
+    
+    def __init__(self, coordinator, entry):
+        super().__init__(coordinator, entry)
+        self._attr_name = "ABB Socket Lock State"
+        self._attr_unique_id = f"{self._entry_id}_socket_lock_state"
+        self._attr_icon = "mdi:lock-outline"
+
+    @property
+    def state(self):
+        lock_code = self.coordinator.data.get("socket_lock_state")
+        return SOCKET_LOCK_STATES.get(lock_code, f"Unknown ({lock_code})")
 
 class AbbTerraAcActivePowerSensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.POWER
