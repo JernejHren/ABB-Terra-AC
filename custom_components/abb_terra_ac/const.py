@@ -22,8 +22,28 @@ CHARGING_STATES = {
     5: "State D/F - Paused / Fault",
 }
 
-# Stanja zaklepanja kabla
+# Stanja zaklepanja kabla (dopolnjeno po priročniku)
 SOCKET_LOCK_STATES = {
-    17: "Cable unlocked",
-    273: "Cable locked",
+    0: "No cable plugged",
+    1: "Cable connected, unlocked",
+    17: "Cable connected, locked",
+    257: "Cable & EV connected, unlocked",
+    273: "Cable & EV connected, locked",
+}
+
+# Kode napak (dodano)
+ERROR_CODES = {
+    0: "No Error",
+    2: "Residual Current Detected",
+    4: "PE Missing or Swap Neutral/Phase",
+    8: "Over Voltage",
+    16: "Under Voltage",
+    32: "Over Current",
+    64: "Severe Over Current",
+    128: "Over Temperature",
+    1024: "Power Relay Fault",
+    2048: "Internal Communication Failure",
+    4096: "E-Lock Failure",
+    8192: "Missing Phase",
+    16384: "Modbus Communication Lost",
 }
