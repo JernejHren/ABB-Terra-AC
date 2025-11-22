@@ -23,7 +23,12 @@ class AbbTerraAcBaseSwitch(CoordinatorEntity, SwitchEntity):
         self.client = client
         serial = coordinator.data.get('serial_number') if coordinator.data else entry.entry_id
         self._entry_id = entry.entry_id
-        self._attr_device_info = { "identifiers": {(DOMAIN, serial)} }
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, serial)},
+            "name": "ABB Terra AC Charger",
+            "manufacturer": "ABB",
+            "model": "Terra AC",
+        }
 
 class AbbTerraAcChargingSwitch(AbbTerraAcBaseSwitch):
     """Stikalo za začetek/ustavitev polnjenja."""
@@ -36,20 +41,30 @@ class AbbTerraAcChargingSwitch(AbbTerraAcBaseSwitch):
         
     @property
     def is_on(self):
-        """Vrne True, če je polnilna seja aktivna (stanje B2, C1 ali C2)."""
+        """
+        Vrne True, če je polnilna seja aktivna.
+        Register 4105h je 'Write Only', zato stanje sklepamo iz Charging State.
+        Stanja (IEC 61851-1 in ABB implementacija):
+        2 = B2 (Authorized, EVSE Ready)
+        3 = C1 (EV Ready)
+        4 = C2 (Charging)
+        5 = D/F (Paused/Fault) - Vključeno, ker <6A sproži pavzo, a seja ostane aktivna.
+        """
         charging_state = self.coordinator.data.get("charging_state")
-        # Seznam stanj, ki predstavljajo aktivno polnilno sejo
-        active_session_states = [2, 3, 4]
-        return charging_state in active_session_states
+        # Dodano stanje 5, da stikalo ostane vklopljeno tudi med pavzo (npr. solarno polnjenje)
+        return charging_state in [2, 3, 4, 5]
 
     async def async_turn_on(self, **kwargs):
-        """Začne sejo polnjenja in počaka pred osvežitvijo."""
+        """Začne sejo polnjenja (Start Session - value 0)."""
+        # Register 4105h (16645 decimal)
         await self.client.write_register(address=16645, value=0)
-        await asyncio.sleep(7)
+        # Vrnjeno na 7 sekund za zanesljivo osvežitev
+        await asyncio.sleep(7) 
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs):
-        """Ustavi sejo polnjenja in počaka pred osvežitvijo."""
+        """Ustavi sejo polnjenja (Stop Session - value 1)."""
+        # Register 4105h (16645 decimal)
         await self.client.write_register(address=16645, value=1)
         await asyncio.sleep(7)
         await self.coordinator.async_request_refresh()
@@ -65,18 +80,26 @@ class AbbTerraAcLockSwitch(AbbTerraAcBaseSwitch):
 
     @property
     def is_on(self):
-        """Vrne True, če je kabel zaklenjen."""
+        """
+        Vrne True, če je kabel zaklenjen.
+        Preverjamo obe stanji zaklepa iz registra 400Ah:
+        17  (0x0011) = Cable connected, locked
+        273 (0x0111) = Cable & EV connected, locked
+        """
         lock_state = self.coordinator.data.get("socket_lock_state")
-        return lock_state == 273
+        return lock_state in [17, 273]
 
     async def async_turn_on(self, **kwargs):
-        """Zaklene kabel in počaka pred osvežitvijo."""
+        """Zaklene kabel (Lock - value 1)."""
+        # Register 4103h (16643 decimal)
         await self.client.write_register(address=16643, value=1)
+        # Vrnjeno na 3 sekunde, kot v vaši originalni datoteki
         await asyncio.sleep(3)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs):
-        """Odklene kabel in počaka pred osvežitvijo."""
+        """Odklene kabel (Unlock - value 0)."""
+        # Register 4103h (16643 decimal)
         await self.client.write_register(address=16643, value=0)
         await asyncio.sleep(3)
         await self.coordinator.async_request_refresh()
