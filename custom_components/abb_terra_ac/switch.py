@@ -1,11 +1,20 @@
 """Definicija stikal za ABB Terra AC."""
 import asyncio
 from homeassistant.components.switch import SwitchEntity, SwitchDeviceClass
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from pymodbus.client import AsyncModbusTcpClient
 
 from .const import DOMAIN
 
-async def async_setup_entry(hass, entry, async_add_entities):
+
+async def async_setup_entry(
+    hass: HomeAssistant, 
+    entry: ConfigEntry, 
+    async_add_entities: AddEntitiesCallback
+) -> None:
     """Nastavi stikala iz konfiguracijskega vnosa."""
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     client = hass.data[DOMAIN][entry.entry_id]["client"]
@@ -16,9 +25,16 @@ async def async_setup_entry(hass, entry, async_add_entities):
     ]
     async_add_entities(switches, True)
 
+
 class AbbTerraAcBaseSwitch(CoordinatorEntity, SwitchEntity):
     """Osnovni razred za stikala."""
-    def __init__(self, coordinator, entry, client):
+    
+    def __init__(
+        self, 
+        coordinator, 
+        entry: ConfigEntry, 
+        client: AsyncModbusTcpClient
+    ) -> None:
         super().__init__(coordinator)
         self.client = client
         serial = coordinator.data.get('serial_number') if coordinator.data else entry.entry_id
@@ -30,9 +46,16 @@ class AbbTerraAcBaseSwitch(CoordinatorEntity, SwitchEntity):
             "model": "Terra AC",
         }
 
+
 class AbbTerraAcChargingSwitch(AbbTerraAcBaseSwitch):
     """Stikalo za začetek/ustavitev polnjenja."""
-    def __init__(self, coordinator, entry, client):
+    
+    def __init__(
+        self, 
+        coordinator, 
+        entry: ConfigEntry, 
+        client: AsyncModbusTcpClient
+    ) -> None:
         super().__init__(coordinator, entry, client)
         self._attr_name = "ABB Start/Stop Charging"
         self._attr_unique_id = f"{self._entry_id}_charging"
@@ -40,7 +63,7 @@ class AbbTerraAcChargingSwitch(AbbTerraAcBaseSwitch):
         self._attr_device_class = SwitchDeviceClass.SWITCH
         
     @property
-    def is_on(self):
+    def is_on(self) -> bool:
         """
         Vrne True, če je polnilna seja aktivna.
         Register 4105h je 'Write Only', zato stanje sklepamo iz Charging State.
@@ -54,7 +77,7 @@ class AbbTerraAcChargingSwitch(AbbTerraAcBaseSwitch):
         # Dodano stanje 5, da stikalo ostane vklopljeno tudi med pavzo (npr. solarno polnjenje)
         return charging_state in [2, 3, 4, 5]
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs) -> None:
         """Začne sejo polnjenja (Start Session - value 0)."""
         # Register 4105h (16645 decimal)
         await self.client.write_register(address=16645, value=0)
@@ -62,16 +85,23 @@ class AbbTerraAcChargingSwitch(AbbTerraAcBaseSwitch):
         await asyncio.sleep(7) 
         await self.coordinator.async_request_refresh()
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs) -> None:
         """Ustavi sejo polnjenja (Stop Session - value 1)."""
         # Register 4105h (16645 decimal)
         await self.client.write_register(address=16645, value=1)
         await asyncio.sleep(7)
         await self.coordinator.async_request_refresh()
 
+
 class AbbTerraAcLockSwitch(AbbTerraAcBaseSwitch):
     """Stikalo za zaklepanje/odklepanje kabla."""
-    def __init__(self, coordinator, entry, client):
+    
+    def __init__(
+        self, 
+        coordinator, 
+        entry: ConfigEntry, 
+        client: AsyncModbusTcpClient
+    ) -> None:
         super().__init__(coordinator, entry, client)
         self._attr_name = "ABB Lock Cable"
         self._attr_unique_id = f"{self._entry_id}_lock"
@@ -79,7 +109,7 @@ class AbbTerraAcLockSwitch(AbbTerraAcBaseSwitch):
         self._attr_device_class = SwitchDeviceClass.SWITCH
 
     @property
-    def is_on(self):
+    def is_on(self) -> bool:
         """
         Vrne True, če je kabel zaklenjen.
         Preverjamo obe stanji zaklepa iz registra 400Ah:
@@ -89,7 +119,7 @@ class AbbTerraAcLockSwitch(AbbTerraAcBaseSwitch):
         lock_state = self.coordinator.data.get("socket_lock_state")
         return lock_state in [17, 273]
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs) -> None:
         """Zaklene kabel (Lock - value 1)."""
         # Register 4103h (16643 decimal)
         await self.client.write_register(address=16643, value=1)
@@ -97,7 +127,7 @@ class AbbTerraAcLockSwitch(AbbTerraAcBaseSwitch):
         await asyncio.sleep(3)
         await self.coordinator.async_request_refresh()
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs) -> None:
         """Odklene kabel (Unlock - value 0)."""
         # Register 4103h (16643 decimal)
         await self.client.write_register(address=16643, value=0)
