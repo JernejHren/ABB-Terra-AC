@@ -4,18 +4,25 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorStateClass,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     UnitOfPower,
     UnitOfEnergy,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
 )
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-# Dodan uvoz novih konstant
 from .const import DOMAIN, CHARGING_STATES, ERROR_CODES, SOCKET_LOCK_STATES
 
-async def async_setup_entry(hass, entry, async_add_entities):
+
+async def async_setup_entry(
+    hass: HomeAssistant, 
+    entry: ConfigEntry, 
+    async_add_entities: AddEntitiesCallback
+) -> None:
     """Nastavi senzorje iz konfiguracijskega vnosa."""
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     
@@ -24,7 +31,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         AbbTerraAcSerialNumberSensor(coordinator, entry),
         AbbTerraAcFirmwareSensor(coordinator, entry),
         AbbTerraAcErrorCodeSensor(coordinator, entry),
-        # Dodan senzor za zaklep
         AbbTerraAcSocketLockStateSensor(coordinator, entry),
         AbbTerraAcActivePowerSensor(coordinator, entry),
         AbbTerraAcEnergyDeliveredSensor(coordinator, entry),
@@ -38,9 +44,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
     ]
     async_add_entities(sensors, True)
 
+
 class AbbTerraAcBaseSensor(CoordinatorEntity, SensorEntity):
     """Osnovni razred za senzorje."""
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         serial = coordinator.data.get('serial_number') if coordinator.data else entry.entry_id
         self._entry_id = entry.entry_id
@@ -53,202 +61,226 @@ class AbbTerraAcBaseSensor(CoordinatorEntity, SensorEntity):
         if coordinator.data:
             self._attr_device_info["sw_version"] = coordinator.data.get('firmware_version')
 
+
 class AbbTerraAcChargingStateSensor(AbbTerraAcBaseSensor):
     """Senzor za stanje polnjenja."""
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(CHARGING_STATES.values())
     
-    def __init__(self, coordinator, entry):
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Charging State"
         self._attr_unique_id = f"{self._entry_id}_charging_state"
         self._attr_icon = "mdi:ev-station"
 
     @property
-    def state(self):
+    def state(self) -> str | None:
         """Vrne trenutno stanje iz slovarja CHARGING_STATES."""
         state_code = self.coordinator.data.get("charging_state")
         return CHARGING_STATES.get(state_code, f"Unknown ({state_code})")
 
+
 class AbbTerraAcSerialNumberSensor(AbbTerraAcBaseSensor):
     _attr_entity_registry_enabled_default = False
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Serial Number"
         self._attr_unique_id = f"{self._entry_id}_serial_number"
         self._attr_icon = "mdi:numeric"
 
     @property
-    def state(self):
+    def state(self) -> str | None:
         return self.coordinator.data.get("serial_number")
+
 
 class AbbTerraAcFirmwareSensor(AbbTerraAcBaseSensor):
     _attr_entity_registry_enabled_default = False
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Firmware Version"
         self._attr_unique_id = f"{self._entry_id}_firmware_version"
         self._attr_icon = "mdi:chip"
 
     @property
-    def state(self):
+    def state(self) -> str | None:
         return self.coordinator.data.get("firmware_version")
 
+
 class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
-    # Dodan enum za lepši prikaz zgodovine
+    """Senzor za kodo napake."""
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(ERROR_CODES.values())
 
-    def __init__(self, coordinator, entry):
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Error Code"
         self._attr_unique_id = f"{self._entry_id}_error_code"
         self._attr_icon = "mdi:alert-circle-outline"
 
     @property
-    def state(self):
-        # Uporaba tabele za prevod kode v besedilo
+    def state(self) -> str | None:
+        """Uporaba tabele za prevod kode v besedilo."""
         error_code = self.coordinator.data.get("error_code")
         return ERROR_CODES.get(error_code, f"Unknown Error ({error_code})")
 
-# Nov razred za Socket Lock
+
 class AbbTerraAcSocketLockStateSensor(AbbTerraAcBaseSensor):
     """Senzor za stanje zaklepa vtičnice."""
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(SOCKET_LOCK_STATES.values())
     
-    def __init__(self, coordinator, entry):
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Socket Lock State"
         self._attr_unique_id = f"{self._entry_id}_socket_lock_state"
         self._attr_icon = "mdi:lock-outline"
 
     @property
-    def state(self):
+    def state(self) -> str | None:
         lock_code = self.coordinator.data.get("socket_lock_state")
         return SOCKET_LOCK_STATES.get(lock_code, f"Unknown ({lock_code})")
+
 
 class AbbTerraAcActivePowerSensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.WATT
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Active Power"
         self._attr_unique_id = f"{self._entry_id}_active_power"
 
     @property
-    def native_value(self):
+    def native_value(self) -> float | None:
         return self.coordinator.data.get("active_power")
+
 
 class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Energy Delivered"
         self._attr_unique_id = f"{self._entry_id}_energy_delivered"
 
     @property
-    def native_value(self):
+    def native_value(self) -> float | None:
         return self.coordinator.data.get("energy_delivered")
+
 
 class AbbTerraAcCurrentL1Sensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Current L1"
         self._attr_unique_id = f"{self._entry_id}_current_l1"
 
     @property
-    def native_value(self):
+    def native_value(self) -> int | None:
         value = self.coordinator.data.get("charging_current_l1", 0)
         return int(round(value, 0))
+
 
 class AbbTerraAcCurrentL2Sensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Current L2"
         self._attr_unique_id = f"{self._entry_id}_current_l2"
 
     @property
-    def native_value(self):
+    def native_value(self) -> int | None:
         value = self.coordinator.data.get("charging_current_l2", 0)
         return int(round(value, 0))
+
 
 class AbbTerraAcCurrentL3Sensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Current L3"
         self._attr_unique_id = f"{self._entry_id}_current_l3"
 
     @property
-    def native_value(self):
+    def native_value(self) -> int | None:
         value = self.coordinator.data.get("charging_current_l3", 0)
         return int(round(value, 0))
+
 
 class AbbTerraAcVoltageL1Sensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.VOLTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
     _attr_suggested_display_precision = 2
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Voltage L1"
         self._attr_unique_id = f"{self._entry_id}_voltage_l1"
 
     @property
-    def native_value(self):
+    def native_value(self) -> float | None:
         return self.coordinator.data.get("voltage_l1")
+
 
 class AbbTerraAcVoltageL2Sensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.VOLTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
     _attr_suggested_display_precision = 2
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Voltage L2"
         self._attr_unique_id = f"{self._entry_id}_voltage_l2"
 
     @property
-    def native_value(self):
+    def native_value(self) -> float | None:
         return self.coordinator.data.get("voltage_l2")
+
 
 class AbbTerraAcVoltageL3Sensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.VOLTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
     _attr_suggested_display_precision = 2
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Voltage L3"
         self._attr_unique_id = f"{self._entry_id}_voltage_l3"
 
     @property
-    def native_value(self):
+    def native_value(self) -> float | None:
         return self.coordinator.data.get("voltage_l3")
+
 
 class AbbTerraAcCurrentLimitSensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
     _attr_suggested_display_precision = 2
-    def __init__(self, coordinator, entry):
+    
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Actual Current Limit"
         self._attr_unique_id = f"{self._entry_id}_actual_current_limit"
         self._attr_icon = "mdi:current-ac"
         
     @property
-    def native_value(self):
+    def native_value(self) -> float | None:
         return self.coordinator.data.get("charging_current_limit")
