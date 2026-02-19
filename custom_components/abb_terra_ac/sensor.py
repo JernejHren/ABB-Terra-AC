@@ -160,7 +160,7 @@ class AbbTerraAcActivePowerSensor(AbbTerraAcBaseSensor):
 
 class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
     
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
