@@ -45,7 +45,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         client = hass.data[DOMAIN][entry.entry_id]["client"]
         if client.connected:
             try:
-                await client.close()
+                client.close()
                 _LOGGER.debug("Modbus povezava uspešno zaprta")
             except Exception as err:
                 _LOGGER.warning(f"Napaka pri zapiranju Modbus povezave: {err}")
