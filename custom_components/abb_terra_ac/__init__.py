@@ -64,6 +64,9 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator):
         self.serial_number: str | None = None
         # Flag za preprečevanje ponavljajočih se poskusov popravka fallback limita
         self._fallback_fix_attempted = False
+        # Zadnja veljavna vrednost polnilnega toka (za auto-fix firmware napake)
+        self._last_valid_current_limit: int | None = None
+        self._current_limit_fix_attempted = False
         
         super().__init__(
             hass,
@@ -117,37 +120,55 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator):
             data["charging_current_limit_modbus"] = self._decode_32bit_value(registers[34:36], 0.001)
             data["fallback_limit"] = registers[36]
             
-            # --- ZAČETEK SPREMEMBE: Preverjanje in popravek Fallback Limita ---
+            # --- Preverjanje in popravek Fallback Limita ---
             fallback_limit = data["fallback_limit"]
-            
-            # Preverimo, ali je vrednost neveljavna (večja od 32A)
             if fallback_limit > 32:
                 _LOGGER.warning(
                     f"Zaznana neveljavna vrednost za 'fallback limit': {fallback_limit}A "
                     "(verjetno napaka v firmware). Poskus ponastavitve na 6A."
                 )
-                
-                # Poskusi popraviti samo enkrat na refresh cikel, da se izognemo zanki
                 if not self._fallback_fix_attempted:
                     self._fallback_fix_attempted = True
-                    
                     try:
-                        # PRAVILNI register: 16649 (kot v number entity)
                         write_result = await self.client.write_register(address=16649, value=6)
-                       
                         if write_result.isError():
                             _LOGGER.error(f"Napaka pri pisanju nove 'fallback' vrednosti: {write_result}")
                         else:
                             _LOGGER.info("Uspešno ponastavljena 'fallback' vrednost na 6A.")
-                            # Takoj posodobimo podatke v koordinatorju za ta cikel
                             data["fallback_limit"] = 6
-                           
                     except Exception as e:
                         _LOGGER.error(f"Izjema med pisanjem 'fallback' vrednosti: {e}")
             else:
-                # Če je vrednost normalna, resetiraj flag za prihodnje cikle
                 self._fallback_fix_attempted = False
-            # --- KONEC SPREMEMBE ---
+
+            # --- Preverjanje in popravek Charging Current Limit ---
+            user_max = int(data["user_settable_max_current"])
+            current_limit = int(data["charging_current_limit_modbus"])
+
+            if user_max > 0 and current_limit <= user_max:
+                # Vrednost je veljavna — shranimo jo kot zadnjo znano
+                self._last_valid_current_limit = current_limit
+                self._current_limit_fix_attempted = False
+            elif user_max > 0 and current_limit > user_max:
+                _LOGGER.warning(
+                    f"Zaznana neveljavna vrednost za 'charging current limit': {current_limit}A "
+                    f"(maksimum je {user_max}A). Poskus ponastavitve."
+                )
+                if not self._current_limit_fix_attempted:
+                    self._current_limit_fix_attempted = True
+                    restore_value = self._last_valid_current_limit if self._last_valid_current_limit is not None else user_max
+                    value_to_send = int(restore_value * 1000)
+                    high_word = value_to_send >> 16
+                    low_word = value_to_send & 0xFFFF
+                    try:
+                        write_result = await self.client.write_registers(address=16640, values=[high_word, low_word])
+                        if write_result.isError():
+                            _LOGGER.error(f"Napaka pri pisanju 'charging current limit': {write_result}")
+                        else:
+                            _LOGGER.info(f"Uspešno ponastavljen 'charging current limit' na {restore_value}A.")
+                            data["charging_current_limit_modbus"] = restore_value
+                    except Exception as e:
+                        _LOGGER.error(f"Izjema med pisanjem 'charging current limit': {e}")
             
             return data
             
@@ -184,7 +205,10 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator):
                 (byte0 & 0xF)
             )
             
-            return f"TACW22{plant_id}{prod_week:02d}{prod_year:02d}{connector}{serial_num:04d}"
+            rated_power_map = {0x07: "7", 0x11: "11", 0x22: "22"}
+            byte6 = regs[0] & 0xFF
+            rated_power = rated_power_map.get(byte6, str(byte6))
+            return f"TACW{rated_power}-{plant_id}-{prod_week:02d}{prod_year:02d}-{connector}{serial_num:04d}"
         except Exception as e:
             _LOGGER.warning(f"Ne morem dekodirati serijske številke: {e}")
             return f"Ne morem dekodirati: {regs}"
