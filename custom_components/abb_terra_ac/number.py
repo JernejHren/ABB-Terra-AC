@@ -56,9 +56,15 @@ class AbbTerraAcChargingCurrentLimit(AbbTerraAcBaseNumber):
         self._attr_icon = "mdi:current-ac"
         self._attr_native_unit_of_measurement = "A"
         self._attr_native_min_value = 0  # 0 = pavza
-        self._attr_native_max_value = 32
+        self._attr_native_max_value = 32  # dinamično prepisano v native_max_value
         self._attr_native_step = 1
         self._attr_mode = NumberMode.SLIDER
+
+    @property
+    def native_max_value(self) -> float:
+        """Dinamično nastavi maksimum glede na user_settable_max_current."""
+        max_current = self.coordinator.data.get("user_settable_max_current") if self.coordinator.data else None
+        return int(max_current) if max_current else 32
 
     @property
     def native_value(self) -> float | None:
