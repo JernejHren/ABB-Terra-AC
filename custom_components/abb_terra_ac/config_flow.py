@@ -46,7 +46,7 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             errors["base"] = "invalid_response"
                         else:
                             # Povezava uspešna, zapri jo in ustvari vnos
-                            await client.close()
+                            client.close()
                             
                             # Preveri, če vnos že obstaja
                             await self.async_set_unique_id(f"{host}:{port}")
@@ -60,7 +60,7 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         errors["base"] = "timeout"
                     finally:
                         if client.connected:
-                            await client.close()
+                            client.close()
                             
             except asyncio.TimeoutError:
                 errors["base"] = "timeout"
