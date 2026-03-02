@@ -11,6 +11,7 @@ from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
 )
+from datetime import datetime, timezone
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -162,15 +163,28 @@ class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Energy Delivered"
         self._attr_unique_id = f"{self._entry_id}_energy_delivered"
+        self._last_energy_value: float = 0
+        self._last_reset: datetime = datetime.now(timezone.utc)
 
     @property
     def native_value(self) -> float | None:
-        return self.coordinator.data.get("energy_delivered")
+        value = self.coordinator.data.get("energy_delivered")
+        if value is None:
+            return None
+        # Ob padcu vrednosti na 0 zabeležimo čas reseta (konec seje)
+        if value == 0 and self._last_energy_value > 0:
+            self._last_reset = datetime.now(timezone.utc)
+        self._last_energy_value = value
+        return value
+
+    @property
+    def last_reset(self) -> datetime:
+        return self._last_reset
 
 
 class AbbTerraAcCurrentL1Sensor(AbbTerraAcBaseSensor):
