@@ -1,4 +1,5 @@
-"""Definicija senzorjev za ABB Terra AC."""
+"""Sensor definitions for ABB Terra AC."""
+from datetime import datetime, timezone
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
@@ -11,7 +12,6 @@ from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
 )
-from datetime import datetime, timezone
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -20,13 +20,13 @@ from .const import DOMAIN, CHARGING_STATES, ERROR_CODES, SOCKET_LOCK_STATES
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, 
-    entry: ConfigEntry, 
+    hass: HomeAssistant,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Nastavi senzorje iz konfiguracijskega vnosa."""
+    """Set up sensors from a config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    
+
     sensors = [
         AbbTerraAcChargingStateSensor(coordinator, entry),
         AbbTerraAcSerialNumberSensor(coordinator, entry),
@@ -47,27 +47,27 @@ async def async_setup_entry(
 
 
 class AbbTerraAcBaseSensor(CoordinatorEntity, SensorEntity):
-    """Osnovni razred za senzorje."""
-    
+    """Base class for sensors."""
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
-        serial = coordinator.data.get('serial_number') if coordinator.data else entry.entry_id
         self._entry_id = entry.entry_id
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, serial)},
+            "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "ABB Terra AC Charger",
             "manufacturer": "ABB",
             "model": "Terra AC",
         }
         if coordinator.data:
-            self._attr_device_info["sw_version"] = coordinator.data.get('firmware_version')
+            self._attr_device_info["sw_version"] = coordinator.data.get("firmware_version")
+            self._attr_device_info["serial_number"] = coordinator.data.get("serial_number")
 
 
 class AbbTerraAcChargingStateSensor(AbbTerraAcBaseSensor):
-    """Senzor za stanje polnjenja."""
+    """Sensor for charging state."""
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(CHARGING_STATES.values())
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Charging State"
@@ -76,14 +76,14 @@ class AbbTerraAcChargingStateSensor(AbbTerraAcBaseSensor):
 
     @property
     def state(self) -> str | None:
-        """Vrne trenutno stanje iz slovarja CHARGING_STATES."""
         state_code = self.coordinator.data.get("charging_state")
         return CHARGING_STATES.get(state_code, f"Unknown ({state_code})")
 
 
 class AbbTerraAcSerialNumberSensor(AbbTerraAcBaseSensor):
+    """Sensor for serial number."""
     _attr_entity_registry_enabled_default = False
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Serial Number"
@@ -96,8 +96,9 @@ class AbbTerraAcSerialNumberSensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcFirmwareSensor(AbbTerraAcBaseSensor):
+    """Sensor for firmware version."""
     _attr_entity_registry_enabled_default = False
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Firmware Version"
@@ -110,7 +111,7 @@ class AbbTerraAcFirmwareSensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
-    """Senzor za kodo napake."""
+    """Sensor for error code."""
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(ERROR_CODES.values())
 
@@ -122,16 +123,15 @@ class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
 
     @property
     def state(self) -> str | None:
-        """Uporaba tabele za prevod kode v besedilo."""
         error_code = self.coordinator.data.get("error_code")
         return ERROR_CODES.get(error_code, f"Unknown Error ({error_code})")
 
 
 class AbbTerraAcSocketLockStateSensor(AbbTerraAcBaseSensor):
-    """Senzor za stanje zaklepa vtičnice."""
+    """Sensor for socket lock state."""
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(SOCKET_LOCK_STATES.values())
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Socket Lock State"
@@ -145,10 +145,11 @@ class AbbTerraAcSocketLockStateSensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcActivePowerSensor(AbbTerraAcBaseSensor):
+    """Sensor for active power."""
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.WATT
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Active Power"
@@ -160,6 +161,7 @@ class AbbTerraAcActivePowerSensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
+    """Sensor for energy delivered in the current session."""
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
@@ -176,7 +178,7 @@ class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
         value = self.coordinator.data.get("energy_delivered")
         if value is None:
             return None
-        # Ob padcu vrednosti na 0 zabeležimo čas reseta (konec seje)
+        # Record reset time when value drops to 0 (end of session)
         if value == 0 and self._last_energy_value > 0:
             self._last_reset = datetime.now(timezone.utc)
         self._last_energy_value = value
@@ -188,10 +190,11 @@ class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcCurrentL1Sensor(AbbTerraAcBaseSensor):
+    """Sensor for charging current L1."""
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Current L1"
@@ -204,10 +207,11 @@ class AbbTerraAcCurrentL1Sensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcCurrentL2Sensor(AbbTerraAcBaseSensor):
+    """Sensor for charging current L2."""
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Current L2"
@@ -220,10 +224,11 @@ class AbbTerraAcCurrentL2Sensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcCurrentL3Sensor(AbbTerraAcBaseSensor):
+    """Sensor for charging current L3."""
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Current L3"
@@ -236,11 +241,12 @@ class AbbTerraAcCurrentL3Sensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcVoltageL1Sensor(AbbTerraAcBaseSensor):
+    """Sensor for voltage L1."""
     _attr_device_class = SensorDeviceClass.VOLTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
     _attr_suggested_display_precision = 2
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Voltage L1"
@@ -252,11 +258,12 @@ class AbbTerraAcVoltageL1Sensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcVoltageL2Sensor(AbbTerraAcBaseSensor):
+    """Sensor for voltage L2."""
     _attr_device_class = SensorDeviceClass.VOLTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
     _attr_suggested_display_precision = 2
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Voltage L2"
@@ -268,11 +275,12 @@ class AbbTerraAcVoltageL2Sensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcVoltageL3Sensor(AbbTerraAcBaseSensor):
+    """Sensor for voltage L3."""
     _attr_device_class = SensorDeviceClass.VOLTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
     _attr_suggested_display_precision = 2
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Voltage L3"
@@ -284,17 +292,18 @@ class AbbTerraAcVoltageL3Sensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcCurrentLimitSensor(AbbTerraAcBaseSensor):
+    """Sensor for actual current limit chosen by the charger."""
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
     _attr_suggested_display_precision = 2
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
         self._attr_name = "ABB Actual Current Limit"
         self._attr_unique_id = f"{self._entry_id}_actual_current_limit"
         self._attr_icon = "mdi:current-ac"
-        
+
     @property
     def native_value(self) -> float | None:
         return self.coordinator.data.get("charging_current_limit")
