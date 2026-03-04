@@ -2,22 +2,22 @@
   "config": {
     "step": {
       "user": {
-        "title": "Nastavitev ABB Terra AC",
-        "description": "Vnesite IP naslov in port vaše ABB Terra AC polnilnice",
+        "title": "Set up ABB Terra AC",
+        "description": "Enter the IP address and port of your ABB Terra AC charger",
         "data": {
-          "host": "IP naslov",
-          "port": "Modbus TCP port"
+          "host": "IP Address",
+          "port": "Modbus TCP Port"
         }
       }
     },
     "error": {
-      "cannot_connect": "Neuspešna povezava s polnilnico. Preverite IP naslov in port.",
-      "timeout": "Povezava s polnilnico je potekla. Preverite omrežno povezavo.",
-      "invalid_response": "Polnilnica ne odgovarja pravilno. Preverite ali podpira Modbus TCP.",
-      "unknown": "Nepričakovana napaka pri povezavi"
+      "cannot_connect": "Failed to connect to the charger. Check the IP address and port.",
+      "timeout": "Connection to the charger timed out. Check your network connection.",
+      "invalid_response": "The charger is not responding correctly. Check if Modbus TCP is enabled.",
+      "unknown": "Unexpected error during connection"
     },
     "abort": {
-      "already_configured": "Ta polnilnica je že konfigurirana"
+      "already_configured": "This charger is already configured"
     }
   }
 }
