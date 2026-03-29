@@ -1,17 +1,46 @@
 """Constants for the ABB Terra AC integration."""
 
-DOMAIN = "abb_terra_ac"
-DEFAULT_PORT = 502
-DEFAULT_SCAN_INTERVAL = 15
+from __future__ import annotations
 
-PLATFORMS = ["sensor", "switch", "number"]
+from typing import Final, TypedDict
 
-CONF_HOST = "host"
-CONF_PORT = "port"
-CONF_SCAN_INTERVAL = "scan_interval"
+from homeassistant.const import Platform
+
+DOMAIN: Final = "abb_terra_ac"
+DEFAULT_PORT: Final = 502
+DEFAULT_SCAN_INTERVAL: Final = 15
+
+PLATFORMS: Final[list[Platform]] = [Platform.SENSOR, Platform.SWITCH, Platform.NUMBER]
+
+CONF_HOST: Final = "host"
+CONF_PORT: Final = "port"
+CONF_SCAN_INTERVAL: Final = "scan_interval"
+
+
+class AbbTerraAcData(TypedDict):
+    """Coordinator data for one charger update."""
+
+    serial_number: str
+    firmware_version: str
+    user_settable_max_current: float
+    error_code: int
+    socket_lock_state: int
+    charging_state: int
+    charging_current_limit: float
+    charging_current_l1: float
+    charging_current_l2: float
+    charging_current_l3: float
+    voltage_l1: float
+    voltage_l2: float
+    voltage_l3: float
+    active_power: float
+    energy_delivered: float
+    communication_timeout: int
+    charging_current_limit_modbus: float
+    fallback_limit: int
 
 # Charging states per IEC 61851-1
-CHARGING_STATES = {
+CHARGING_STATES: Final[dict[int, str]] = {
     0: "State A - Idle",
     1: "State B1 - EV Plug in, pending authorization",
     2: "State B2 - EV Plug in, charging complete",
@@ -21,7 +50,7 @@ CHARGING_STATES = {
 }
 
 # Socket lock states
-SOCKET_LOCK_STATES = {
+SOCKET_LOCK_STATES: Final[dict[int, str]] = {
     0: "No cable plugged",
     1: "Cable connected, unlocked",
     17: "Cable connected, locked",
@@ -30,7 +59,7 @@ SOCKET_LOCK_STATES = {
 }
 
 # Error codes
-ERROR_CODES = {
+ERROR_CODES: Final[dict[int, str]] = {
     0: "No Error",
     2: "Residual Current Detected",
     4: "PE Missing or Swap Neutral/Phase",

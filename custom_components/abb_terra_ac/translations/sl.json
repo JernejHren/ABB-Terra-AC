@@ -8,6 +8,14 @@
           "host": "IP naslov",
           "port": "Modbus TCP port"
         }
+      },
+      "reconfigure": {
+        "title": "Ponovna nastavitev ABB Terra AC",
+        "description": "Posodobite IP naslov in port vaše ABB Terra AC polnilnice",
+        "data": {
+          "host": "IP naslov",
+          "port": "Modbus TCP port"
+        }
       }
     },
     "error": {
@@ -17,7 +25,84 @@
       "unknown": "Nepričakovana napaka pri povezavi"
     },
     "abort": {
-      "already_configured": "Ta polnilnica je že konfigurirana"
+      "already_configured": "Ta polnilnica je že konfigurirana",
+      "reconfigure_successful": "Ponovna nastavitev je uspela"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "charging_state": {
+        "name": "Stanje polnjenja"
+      },
+      "serial_number": {
+        "name": "Serijska številka"
+      },
+      "firmware_version": {
+        "name": "Različica vdelane programske opreme"
+      },
+      "error_code": {
+        "name": "Koda napake"
+      },
+      "socket_lock_state": {
+        "name": "Stanje zaklepa vtičnice"
+      },
+      "active_power": {
+        "name": "Aktivna moč"
+      },
+      "energy_delivered": {
+        "name": "Dostavljena energija"
+      },
+      "current_l1": {
+        "name": "Tok L1"
+      },
+      "current_l2": {
+        "name": "Tok L2"
+      },
+      "current_l3": {
+        "name": "Tok L3"
+      },
+      "voltage_l1": {
+        "name": "Napetost L1"
+      },
+      "voltage_l2": {
+        "name": "Napetost L2"
+      },
+      "voltage_l3": {
+        "name": "Napetost L3"
+      },
+      "actual_current_limit": {
+        "name": "Dejanska omejitev toka"
+      }
+    },
+    "switch": {
+      "charging": {
+        "name": "Začetek/ustavitev polnjenja"
+      },
+      "lock": {
+        "name": "Zaklep kabla"
+      }
+    },
+    "number": {
+      "current_limit": {
+        "name": "Omejitev polnilnega toka"
+      },
+      "fallback_limit": {
+        "name": "Rezervna omejitev"
+      }
+    }
+  },
+  "exceptions": {
+    "charger_unavailable": {
+      "message": "Polnilnica ni odgovorila na zahtevano spremembo."
+    },
+    "write_failed": {
+      "message": "Polnilnica je zavrnila zahtevano spremembo."
+    }
+  },
+  "issues": {
+    "firmware_limit_restore_failed": {
+      "title": "ABB Terra AC polnilnica je vrnila neveljaven parameter {limit_name}",
+      "description": "Polnilnica je poročala o parametru {limit_name} v višini {current_value} A, kar presega nastavljeno največjo vrednost {max_value} A. Home Assistant je poskusil samodejno obnoviti veljavno vrednost, vendar polnilnica spremembe ni sprejela. Preverite nastavitve polnilnice, po potrebi ročno nastavite veljavno omejitev in nato znova naložite ali ponovno nastavite integracijo, ko bo naprava stabilna."
     }
   }
 }

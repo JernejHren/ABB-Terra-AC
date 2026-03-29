@@ -1,0 +1,40 @@
+{
+  "entity": {
+    "sensor": {
+      "charging_state": {
+        "default": "mdi:ev-station"
+      },
+      "serial_number": {
+        "default": "mdi:numeric"
+      },
+      "firmware_version": {
+        "default": "mdi:chip"
+      },
+      "error_code": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "socket_lock_state": {
+        "default": "mdi:lock-outline"
+      },
+      "actual_current_limit": {
+        "default": "mdi:current-ac"
+      }
+    },
+    "switch": {
+      "charging": {
+        "default": "mdi:flash"
+      },
+      "lock": {
+        "default": "mdi:lock"
+      }
+    },
+    "number": {
+      "current_limit": {
+        "default": "mdi:current-ac"
+      },
+      "fallback_limit": {
+        "default": "mdi:current-ac"
+      }
+    }
+  }
+}
