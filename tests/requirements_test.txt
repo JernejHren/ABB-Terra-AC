@@ -1,0 +1,6 @@
+# Pin pytest-homeassistant-custom-component to match your target Home Assistant release.
+# See: https://github.com/MatthewFlamm/pytest-homeassistant-custom-component
+pytest-homeassistant-custom-component
+pytest-asyncio>=0.23
+pymodbus>=3.9.2
+mypy>=1.11

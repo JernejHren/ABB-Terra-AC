@@ -1,12 +1,20 @@
 """Number entity definitions for ABB Terra AC."""
+from __future__ import annotations
+
+from typing import Any
+
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from pymodbus.client import AsyncModbusTcpClient
 
-from .const import DOMAIN
+from . import AbbTerraAcDataUpdateCoordinator, AbbTerraAcRuntimeData
+from .entity import AbbTerraAcEntity
+from .modbus_write import async_write_register, async_write_registers
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -15,8 +23,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up number entities from a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    client = hass.data[DOMAIN][entry.entry_id]["client"]
+    runtime_data: AbbTerraAcRuntimeData = entry.runtime_data
+    coordinator = runtime_data.coordinator
+    client = runtime_data.client
 
     numbers = [
         AbbTerraAcChargingCurrentLimit(coordinator, entry, client),
@@ -25,34 +34,35 @@ async def async_setup_entry(
     async_add_entities(numbers, True)
 
 
-class AbbTerraAcBaseNumber(CoordinatorEntity, NumberEntity):
+class AbbTerraAcBaseNumber(AbbTerraAcEntity, NumberEntity):
     """Base class for number entities."""
+
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
-        coordinator,
+        coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
         client: AsyncModbusTcpClient
     ) -> None:
-        super().__init__(coordinator)
+        AbbTerraAcEntity.__init__(self, coordinator, entry.entry_id)
         self.client = client
-        self._entry_id = entry.entry_id
-        self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}}
 
 
 class AbbTerraAcChargingCurrentLimit(AbbTerraAcBaseNumber):
     """Number entity for setting the charging current limit."""
 
+    _attr_entity_category = None
+
     def __init__(
         self,
-        coordinator,
+        coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
         client: AsyncModbusTcpClient
     ) -> None:
         super().__init__(coordinator, entry, client)
-        self._attr_name = "ABB Charging Current Limit"
-        self._attr_unique_id = f"{self._entry_id}_current_limit"
-        self._attr_icon = "mdi:current-ac"
+        self._attr_translation_key = "current_limit"
+        self._attr_unique_id = f"{self._config_entry_id}_current_limit"
         self._attr_native_unit_of_measurement = "A"
         self._attr_native_min_value = 0  # 0 triggers pause state (< 6A per IEC 61851-1)
         self._attr_native_max_value = 32
@@ -75,23 +85,24 @@ class AbbTerraAcChargingCurrentLimit(AbbTerraAcBaseNumber):
         value_to_send = int(value * 1000)
         high_word = value_to_send >> 16
         low_word = value_to_send & 0xFFFF
-        await self.client.write_registers(address=16640, values=[high_word, low_word])
+        await async_write_registers(self.client, 16640, [high_word, low_word])
         await self.coordinator.async_request_refresh()
 
 
 class AbbTerraAcFallbackLimit(AbbTerraAcBaseNumber):
     """Number entity for setting the fallback current limit."""
 
+    _attr_entity_category = None
+
     def __init__(
         self,
-        coordinator,
+        coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
         client: AsyncModbusTcpClient
     ) -> None:
         super().__init__(coordinator, entry, client)
-        self._attr_name = "ABB Fallback Limit"
-        self._attr_unique_id = f"{self._entry_id}_fallback_limit"
-        self._attr_icon = "mdi:current-ac"
+        self._attr_translation_key = "fallback_limit"
+        self._attr_unique_id = f"{self._config_entry_id}_fallback_limit"
         self._attr_native_unit_of_measurement = "A"
         self._attr_native_min_value = 0  # 0 triggers pause state on communication loss
         self._attr_native_max_value = 32
@@ -110,5 +121,5 @@ class AbbTerraAcFallbackLimit(AbbTerraAcBaseNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new fallback limit."""
-        await self.client.write_register(address=16649, value=int(value))
+        await async_write_register(self.client, 16649, int(value))
         await self.coordinator.async_request_refresh()
