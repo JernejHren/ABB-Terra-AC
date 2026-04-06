@@ -6,11 +6,26 @@ from typing import Final, TypedDict
 
 from homeassistant.const import Platform
 
+from .session_state import LastCommand, SessionState
+
+LAST_COMMAND_OPTIONS: Final[list[str]] = [c.value for c in LastCommand]
+SESSION_STATE_OPTIONS: Final[list[str]] = [s.value for s in SessionState]
+
 DOMAIN: Final = "abb_terra_ac"
 DEFAULT_PORT: Final = 502
 DEFAULT_SCAN_INTERVAL: Final = 15
+MIN_SCAN_INTERVAL: Final = 5
+MAX_SCAN_INTERVAL: Final = 300
+MODBUS_CONNECT_TIMEOUT: Final = 5.0
+MODBUS_READ_TIMEOUT: Final = 3.0
 
-PLATFORMS: Final[list[Platform]] = [Platform.SENSOR, Platform.SWITCH, Platform.NUMBER]
+PLATFORMS: Final[list[Platform]] = [
+    Platform.SENSOR,
+    Platform.SWITCH,
+    Platform.NUMBER,
+    Platform.BUTTON,
+    Platform.BINARY_SENSOR,
+]
 
 CONF_HOST: Final = "host"
 CONF_PORT: Final = "port"
@@ -49,28 +64,28 @@ CHARGING_STATES: Final[dict[int, str]] = {
     5: "State D/F - Paused / Fault",
 }
 
-# Socket lock states
+# Socket lock states (enum values = translation keys under entity.sensor.socket_lock_state.state)
 SOCKET_LOCK_STATES: Final[dict[int, str]] = {
-    0: "No cable plugged",
-    1: "Cable connected, unlocked",
-    17: "Cable connected, locked",
-    257: "Cable & EV connected, unlocked",
-    273: "Cable & EV connected, locked",
+    0: "no_cable_plugged",
+    1: "cable_connected_unlocked",
+    17: "cable_connected_locked",
+    257: "cable_ev_connected_unlocked",
+    273: "cable_ev_connected_locked",
 }
 
-# Error codes
+# Error codes (enum values = translation keys under entity.sensor.error_code.state)
 ERROR_CODES: Final[dict[int, str]] = {
-    0: "No Error",
-    2: "Residual Current Detected",
-    4: "PE Missing or Swap Neutral/Phase",
-    8: "Over Voltage",
-    16: "Under Voltage",
-    32: "Over Current",
-    64: "Severe Over Current",
-    128: "Over Temperature",
-    1024: "Power Relay Fault",
-    2048: "Internal Communication Failure",
-    4096: "E-Lock Failure",
-    8192: "Missing Phase",
-    16384: "Modbus Communication Lost",
+    0: "no_error",
+    2: "residual_current_detected",
+    4: "pe_missing_or_swap_neutral_phase",
+    8: "over_voltage",
+    16: "under_voltage",
+    32: "over_current",
+    64: "severe_over_current",
+    128: "over_temperature",
+    1024: "power_relay_fault",
+    2048: "internal_communication_failure",
+    4096: "e_lock_failure",
+    8192: "missing_phase",
+    16384: "modbus_communication_lost",
 }

@@ -1,8 +1,14 @@
 {
   "entity": {
     "sensor": {
-      "charging_state": {
+      "charging_state_raw": {
+        "default": "mdi:numeric"
+      },
+      "session_state": {
         "default": "mdi:ev-station"
+      },
+      "last_command": {
+        "default": "mdi:gesture-tap"
       },
       "serial_number": {
         "default": "mdi:numeric"
@@ -21,11 +27,21 @@
       }
     },
     "switch": {
-      "charging": {
-        "default": "mdi:flash"
-      },
       "lock": {
         "default": "mdi:lock"
+      }
+    },
+    "button": {
+      "start_charging": {
+        "default": "mdi:play-circle"
+      },
+      "stop_charging": {
+        "default": "mdi:stop-circle"
+      }
+    },
+    "binary_sensor": {
+      "is_charging": {
+        "default": "mdi:ev-station"
       }
     },
     "number": {

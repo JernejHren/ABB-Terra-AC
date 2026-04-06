@@ -5,16 +5,24 @@
         "title": "Set up ABB Terra AC",
         "description": "Enter the IP address and port of your ABB Terra AC charger",
         "data": {
-          "host": "IP Address",
-          "port": "Modbus TCP Port"
+          "host": "IP address",
+          "port": "Modbus TCP port"
+        },
+        "data_description": {
+          "host": "Hostname or IPv4 address of the charger on your local network.",
+          "port": "TCP port for Modbus (typically 502 for ABB Terra AC)."
         }
       },
       "reconfigure": {
         "title": "Reconfigure ABB Terra AC",
         "description": "Update the IP address and port of your ABB Terra AC charger",
         "data": {
-          "host": "IP Address",
-          "port": "Modbus TCP Port"
+          "host": "IP address",
+          "port": "Modbus TCP port"
+        },
+        "data_description": {
+          "host": "Hostname or IPv4 address of the charger on your local network.",
+          "port": "TCP port for Modbus (typically 502 for ABB Terra AC)."
         }
       }
     },
@@ -29,10 +37,46 @@
       "reconfigure_successful": "Reconfiguration was successful"
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ABB Terra AC options",
+        "description": "Runtime settings (identity and connection are changed via reconfigure).",
+        "data": {
+          "scan_interval": "Polling interval"
+        },
+        "data_description": {
+          "scan_interval": "How often Home Assistant reads charger registers, in seconds (5–300)."
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "charging_state": {
         "name": "Charging State"
+      },
+      "charging_state_raw": {
+        "name": "Charging State (raw)"
+      },
+      "session_state": {
+        "name": "Session State",
+        "state": {
+          "idle": "Idle",
+          "active": "Active",
+          "completed": "Completed",
+          "paused_by_current": "Paused by current limit",
+          "paused_by_command": "Paused by stop command",
+          "unknown": "Unknown"
+        }
+      },
+      "last_command": {
+        "name": "Last Command",
+        "state": {
+          "none": "None",
+          "start": "Start",
+          "stop": "Stop"
+        }
       },
       "serial_number": {
         "name": "Serial Number"
@@ -41,10 +85,34 @@
         "name": "Firmware Version"
       },
       "error_code": {
-        "name": "Error Code"
+        "name": "Error Code",
+        "state": {
+          "no_error": "No Error",
+          "residual_current_detected": "Residual Current Detected",
+          "pe_missing_or_swap_neutral_phase": "PE Missing or Swap Neutral/Phase",
+          "over_voltage": "Over Voltage",
+          "under_voltage": "Under Voltage",
+          "over_current": "Over Current",
+          "severe_over_current": "Severe Over Current",
+          "over_temperature": "Over Temperature",
+          "power_relay_fault": "Power Relay Fault",
+          "internal_communication_failure": "Internal Communication Failure",
+          "e_lock_failure": "E-Lock Failure",
+          "missing_phase": "Missing Phase",
+          "modbus_communication_lost": "Modbus Communication Lost",
+          "unknown": "Unknown"
+        }
       },
       "socket_lock_state": {
-        "name": "Socket Lock State"
+        "name": "Socket Lock State",
+        "state": {
+          "no_cable_plugged": "No cable plugged",
+          "cable_connected_unlocked": "Cable connected, unlocked",
+          "cable_connected_locked": "Cable connected, locked",
+          "cable_ev_connected_unlocked": "Cable & EV connected, unlocked",
+          "cable_ev_connected_locked": "Cable & EV connected, locked",
+          "unknown": "Unknown"
+        }
       },
       "active_power": {
         "name": "Active Power"
@@ -75,16 +143,28 @@
       }
     },
     "switch": {
-      "charging": {
-        "name": "Start/Stop Charging"
-      },
       "lock": {
         "name": "Lock Cable"
       }
     },
+    "button": {
+      "start_charging": {
+        "name": "Start Charging"
+      },
+      "stop_charging": {
+        "name": "Stop Charging",
+        "description": "Ends the charging session. Starting again may require a new start command."
+      }
+    },
+    "binary_sensor": {
+      "is_charging": {
+        "name": "Is Charging"
+      }
+    },
     "number": {
       "current_limit": {
-        "name": "Charging Current Limit"
+        "name": "Charging Current Limit",
+        "description": "Set to 0 A to pause charging without ending the session."
       },
       "fallback_limit": {
         "name": "Fallback Limit"

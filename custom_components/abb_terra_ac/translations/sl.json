@@ -34,6 +34,15 @@
       "charging_state": {
         "name": "Stanje polnjenja"
       },
+      "charging_state_raw": {
+        "name": "Stanje polnjenja (surovo)"
+      },
+      "session_state": {
+        "name": "Stanje seje"
+      },
+      "last_command": {
+        "name": "Zadnji ukaz"
+      },
       "serial_number": {
         "name": "Serijska številka"
       },
@@ -75,16 +84,28 @@
       }
     },
     "switch": {
-      "charging": {
-        "name": "Začetek/ustavitev polnjenja"
-      },
       "lock": {
         "name": "Zaklep kabla"
       }
     },
+    "button": {
+      "start_charging": {
+        "name": "Začni polnjenje"
+      },
+      "stop_charging": {
+        "name": "Ustavi polnjenje",
+        "description": "Konča sejo polnjenja. Ponovni zagon lahko zahteva nov ukaz za začetek."
+      }
+    },
+    "binary_sensor": {
+      "is_charging": {
+        "name": "Polni se"
+      }
+    },
     "number": {
       "current_limit": {
-        "name": "Omejitev polnilnega toka"
+        "name": "Omejitev polnilnega toka",
+        "description": "Nastavite na 0 A, da začasno ustavite polnjenje brez zaključka seje."
       },
       "fallback_limit": {
         "name": "Rezervna omejitev"

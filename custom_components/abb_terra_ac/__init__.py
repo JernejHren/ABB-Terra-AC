@@ -17,12 +17,17 @@ from pymodbus.exceptions import ConnectionException
 from .const import (
     CONF_HOST,
     CONF_PORT,
+    CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MODBUS_CONNECT_TIMEOUT,
+    MODBUS_READ_TIMEOUT,
     PLATFORMS,
     AbbTerraAcData,
 )
 from .modbus import async_close_client
+from .modbus_write import async_write_register, async_write_registers
+from .session_state import LastCommand, SessionState, derive_session_state
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,13 +49,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     port = entry.data[CONF_PORT]
 
     client = AsyncModbusTcpClient(host=host, port=port)
-    coordinator = AbbTerraAcDataUpdateCoordinator(hass, client, entry.entry_id)
+    coordinator = AbbTerraAcDataUpdateCoordinator(hass, client, entry)
 
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = AbbTerraAcRuntimeData(coordinator=coordinator, client=client)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    entry.async_on_unload(entry.add_update_listener(_async_reload_options))
+
+    return True
+
+
+async def _async_reload_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the config entry when integration options change (e.g. scan interval)."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate config entries to the latest schema (options, version bumps)."""
+    if entry.version == 1:
+        options = dict(entry.options)
+        if CONF_SCAN_INTERVAL not in options:
+            options[CONF_SCAN_INTERVAL] = DEFAULT_SCAN_INTERVAL
+        hass.config_entries.async_update_entry(entry, version=2, options=options)
     return True
 
 
@@ -78,13 +100,16 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
     """Coordinator for fetching data from the charger."""
 
     def __init__(
-        self, hass: HomeAssistant, client: AsyncModbusTcpClient, entry_id: str
+        self, hass: HomeAssistant, client: AsyncModbusTcpClient, entry: ConfigEntry
     ) -> None:
         """Initialize the DataUpdateCoordinator."""
         self.client = client
-        self.entry_id = entry_id
+        self.config_entry = entry
+        self.entry_id = entry.entry_id
+        scan_s = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
         self.serial_number: str | None = None
         self._is_available = True
+        self.last_command: str = LastCommand.NONE
 
         # Firmware bug auto-fix: fallback limit
         self._last_valid_fallback_limit: int | None = None
@@ -98,7 +123,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
+            update_interval=timedelta(seconds=scan_s),
         )
 
     def _async_create_limit_issue(
@@ -132,9 +157,18 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         """Fetch the latest data from the charger."""
         try:
             if not self.client.connected:
-                await self.client.connect()
+                connected = await asyncio.wait_for(
+                    self.client.connect(),
+                    timeout=MODBUS_CONNECT_TIMEOUT,
+                )
+                if not connected:
+                    msg = "connect() returned False"
+                    raise ConnectionException(msg)
 
-            result = await self.client.read_holding_registers(address=16384, count=37)
+            result = await asyncio.wait_for(
+                self.client.read_holding_registers(address=16384, count=37),
+                timeout=MODBUS_READ_TIMEOUT,
+            )
 
             if result.isError():
                 self._async_log_unavailable(f"Error reading registers: {result}")
@@ -211,19 +245,10 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
                     self._fallback_fix_attempted = True
                     restore_value = self._last_valid_fallback_limit if self._last_valid_fallback_limit is not None else user_max
                     try:
-                        write_result = await self.client.write_register(address=16649, value=int(restore_value))
-                        if write_result.isError():
-                            _LOGGER.error("Failed to write fallback limit: %s", write_result)
-                            self._async_create_limit_issue(
-                                _ISSUE_ID_INVALID_FALLBACK_LIMIT,
-                                "fallback limit",
-                                fallback_limit,
-                                user_max,
-                            )
-                        else:
-                            _LOGGER.info("Fallback limit restored to %sA.", restore_value)
-                            data["fallback_limit"] = restore_value
-                            self._async_delete_limit_issue(_ISSUE_ID_INVALID_FALLBACK_LIMIT)
+                        await async_write_register(self.client, 16649, int(restore_value))
+                        _LOGGER.info("Fallback limit restored to %sA.", restore_value)
+                        data["fallback_limit"] = restore_value
+                        self._async_delete_limit_issue(_ISSUE_ID_INVALID_FALLBACK_LIMIT)
                     except Exception as err:
                         _LOGGER.error("Exception while writing fallback limit: %s", err)
                         self._async_create_limit_issue(
@@ -254,19 +279,12 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
                     high_word = value_to_send >> 16
                     low_word = value_to_send & 0xFFFF
                     try:
-                        write_result = await self.client.write_registers(address=16640, values=[high_word, low_word])
-                        if write_result.isError():
-                            _LOGGER.error("Failed to write charging current limit: %s", write_result)
-                            self._async_create_limit_issue(
-                                _ISSUE_ID_INVALID_CURRENT_LIMIT,
-                                "charging current limit",
-                                current_limit,
-                                user_max,
-                            )
-                        else:
-                            _LOGGER.info("Charging current limit restored to %sA.", restore_value)
-                            data["charging_current_limit_modbus"] = restore_value
-                            self._async_delete_limit_issue(_ISSUE_ID_INVALID_CURRENT_LIMIT)
+                        await async_write_registers(
+                            self.client, 16640, [high_word, low_word]
+                        )
+                        _LOGGER.info("Charging current limit restored to %sA.", restore_value)
+                        data["charging_current_limit_modbus"] = restore_value
+                        self._async_delete_limit_issue(_ISSUE_ID_INVALID_CURRENT_LIMIT)
                     except Exception as err:
                         _LOGGER.error("Exception while writing charging current limit: %s", err)
                         self._async_create_limit_issue(
@@ -279,6 +297,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             if not self._is_available:
                 _LOGGER.info("ABB Terra AC charger is available again")
             self._is_available = True
+            self._sync_last_command_after_poll(data)
             return data
 
         except (ConnectionException, asyncio.TimeoutError) as err:
@@ -288,6 +307,36 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             self._async_log_unavailable(f"Unexpected error: {err}")
             _LOGGER.error("Unexpected error: %s", err, exc_info=True)
             raise UpdateFailed(err)
+
+    def _sync_last_command_after_poll(self, data: AbbTerraAcData) -> None:
+        """Clear last_command when the cable is unplugged or the session ends."""
+        if data["socket_lock_state"] == 0:
+            self.last_command = LastCommand.NONE
+            return
+        raw = data["charging_state"]
+        if raw >= 2 and self.last_command == LastCommand.START:
+            self.last_command = LastCommand.NONE
+        elif raw in (0, 1):
+            if self.last_command == LastCommand.START:
+                return
+            if self.last_command == LastCommand.STOP:
+                self.last_command = LastCommand.NONE
+            else:
+                self.last_command = LastCommand.NONE
+
+    @property
+    def session_state(self) -> SessionState:
+        """Derived session state from the latest poll and last_command."""
+        if not self.data:
+            return SessionState.UNKNOWN
+        return derive_session_state(
+            charging_state_raw=self.data["charging_state"],
+            current_limit_modbus=float(self.data["charging_current_limit_modbus"]),
+            last_command=self.last_command,
+            charging_current_l1=float(self.data["charging_current_l1"]),
+            charging_current_l2=float(self.data["charging_current_l2"]),
+            charging_current_l3=float(self.data["charging_current_l3"]),
+        )
 
     def _async_log_unavailable(self, reason: str) -> None:
         """Log when the charger becomes unavailable without spamming logs."""

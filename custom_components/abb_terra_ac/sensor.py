@@ -18,10 +18,17 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import AbbTerraAcDataUpdateCoordinator, AbbTerraAcRuntimeData
-from .const import CHARGING_STATES, DOMAIN, ERROR_CODES, SOCKET_LOCK_STATES
+from .const import (
+    CHARGING_STATES,
+    ERROR_CODES,
+    LAST_COMMAND_OPTIONS,
+    SESSION_STATE_OPTIONS,
+    SOCKET_LOCK_STATES,
+)
+from .entity import AbbTerraAcEntity
+from .session_state import SESSION_STATE_ICONS, vehicle_connected_from_socket_lock
 
 PARALLEL_UPDATES = 0
 
@@ -36,7 +43,10 @@ async def async_setup_entry(
     coordinator = runtime_data.coordinator
 
     sensors = [
+        AbbTerraAcChargingStateRawSensor(coordinator, entry),
         AbbTerraAcChargingStateSensor(coordinator, entry),
+        AbbTerraAcSessionStateSensor(coordinator, entry),
+        AbbTerraAcLastCommandSensor(coordinator, entry),
         AbbTerraAcSerialNumberSensor(coordinator, entry),
         AbbTerraAcFirmwareSensor(coordinator, entry),
         AbbTerraAcErrorCodeSensor(coordinator, entry),
@@ -54,45 +64,108 @@ async def async_setup_entry(
     async_add_entities(sensors, True)
 
 
-class AbbTerraAcBaseSensor(
-    CoordinatorEntity[AbbTerraAcDataUpdateCoordinator], SensorEntity
-):
+class AbbTerraAcBaseSensor(AbbTerraAcEntity, SensorEntity):
     """Base class for sensors."""
-
-    _attr_has_entity_name = True
 
     def __init__(
         self, coordinator: AbbTerraAcDataUpdateCoordinator, entry: ConfigEntry
     ) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry.entry_id)
         self._entry_id = entry.entry_id
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "ABB Terra AC Charger",
-            "manufacturer": "ABB",
-            "model": "Terra AC",
-        }
-        if coordinator.data:
-            self._attr_device_info["sw_version"] = coordinator.data.get("firmware_version")
-            self._attr_device_info["serial_number"] = coordinator.data.get("serial_number")
 
 
-class AbbTerraAcChargingStateSensor(AbbTerraAcBaseSensor):
-    """Sensor for charging state."""
-    _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = list(CHARGING_STATES.values())
+class AbbTerraAcChargingStateRawSensor(AbbTerraAcBaseSensor):
+    """Raw charging state nibble from the ABB register (IEC 61851-1)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "charging_state_raw"
 
     def __init__(
         self, coordinator: AbbTerraAcDataUpdateCoordinator, entry: ConfigEntry
     ) -> None:
         super().__init__(coordinator, entry)
-        self._attr_translation_key = "charging_state"
+        self._attr_unique_id = f"{self._entry_id}_charging_state_raw"
+
+    @property
+    def native_value(self) -> int | None:
+        return self.coordinator.data.get("charging_state")
+
+
+class AbbTerraAcChargingStateSensor(AbbTerraAcBaseSensor):
+    """Charging state decoded per IEC 61851-1."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_translation_key = "charging_state"
+    _attr_options = list(dict.fromkeys([*CHARGING_STATES.values(), "Unknown"]))
+
+    def __init__(
+        self, coordinator: AbbTerraAcDataUpdateCoordinator, entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, entry)
         self._attr_unique_id = f"{self._entry_id}_charging_state"
 
     @property
-    def native_value(self) -> str:
-        state_code = self.coordinator.data.get("charging_state")
-        return CHARGING_STATES.get(state_code, f"Unknown ({state_code})")
+    def native_value(self) -> str | None:
+        charging_state = self.coordinator.data.get("charging_state")
+        if charging_state is None:
+            return "Unknown"
+        return CHARGING_STATES.get(int(charging_state), "Unknown")
+
+
+class AbbTerraAcSessionStateSensor(AbbTerraAcBaseSensor):
+    """Derived session state (idle, active, paused by current vs command, etc.)."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(SESSION_STATE_OPTIONS)
+    _attr_translation_key = "session_state"
+
+    def __init__(
+        self, coordinator: AbbTerraAcDataUpdateCoordinator, entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{self._entry_id}_session_state"
+
+    @property
+    def native_value(self) -> str | None:
+        return self.coordinator.session_state.value
+
+    @property
+    def icon(self) -> str | None:
+        return SESSION_STATE_ICONS.get(self.coordinator.session_state)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Debug-friendly context: raw register, limits, and connection."""
+        d = self.coordinator.data
+        if not d:
+            return {}
+        return {
+            "charging_state_raw": d["charging_state"],
+            "current_limit": d["charging_current_limit_modbus"],
+            "last_command": self.coordinator.last_command,
+            "vehicle_connected": vehicle_connected_from_socket_lock(
+                int(d["socket_lock_state"])
+            ),
+        }
+
+
+class AbbTerraAcLastCommandSensor(AbbTerraAcBaseSensor):
+    """Last start/stop command issued from Home Assistant (not mixed into session state)."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(LAST_COMMAND_OPTIONS)
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "last_command"
+
+    def __init__(
+        self, coordinator: AbbTerraAcDataUpdateCoordinator, entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{self._entry_id}_last_command"
+
+    @property
+    def native_value(self) -> str | None:
+        return self.coordinator.last_command
 
 
 class AbbTerraAcSerialNumberSensor(AbbTerraAcBaseSensor):
@@ -132,7 +205,6 @@ class AbbTerraAcFirmwareSensor(AbbTerraAcBaseSensor):
 class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
     """Sensor for error code."""
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = list(ERROR_CODES.values())
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
@@ -141,17 +213,20 @@ class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
         super().__init__(coordinator, entry)
         self._attr_translation_key = "error_code"
         self._attr_unique_id = f"{self._entry_id}_error_code"
+        opts = list(dict.fromkeys([*ERROR_CODES.values(), "unknown"]))
+        self._attr_options = opts
 
     @property
     def native_value(self) -> str:
         error_code = self.coordinator.data.get("error_code")
-        return ERROR_CODES.get(error_code, f"Unknown Error ({error_code})")
+        if error_code is None:
+            return "unknown"
+        return ERROR_CODES.get(int(error_code), "unknown")
 
 
 class AbbTerraAcSocketLockStateSensor(AbbTerraAcBaseSensor):
     """Sensor for socket lock state."""
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = list(SOCKET_LOCK_STATES.values())
 
     def __init__(
         self, coordinator: AbbTerraAcDataUpdateCoordinator, entry: ConfigEntry
@@ -159,11 +234,15 @@ class AbbTerraAcSocketLockStateSensor(AbbTerraAcBaseSensor):
         super().__init__(coordinator, entry)
         self._attr_translation_key = "socket_lock_state"
         self._attr_unique_id = f"{self._entry_id}_socket_lock_state"
+        opts = list(dict.fromkeys([*SOCKET_LOCK_STATES.values(), "unknown"]))
+        self._attr_options = opts
 
     @property
     def native_value(self) -> str:
         lock_code = self.coordinator.data.get("socket_lock_state")
-        return SOCKET_LOCK_STATES.get(lock_code, f"Unknown ({lock_code})")
+        if lock_code is None:
+            return "unknown"
+        return SOCKET_LOCK_STATES.get(int(lock_code), "unknown")
 
 
 class AbbTerraAcActivePowerSensor(AbbTerraAcBaseSensor):
@@ -196,17 +275,24 @@ class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
         super().__init__(coordinator, entry)
         self._attr_translation_key = "energy_delivered"
         self._attr_unique_id = f"{self._entry_id}_energy_delivered"
-        self._last_energy_value: float = 0
+        self._last_energy_value: float = 0.0
         self._last_reset: datetime = datetime.now(timezone.utc)
+
+    def _handle_coordinator_update(self) -> None:
+        """Track session boundary when energy resets to 0 (avoid side effects in native_value)."""
+        super()._handle_coordinator_update()
+        if not self.coordinator.data:
+            return
+        value = float(self.coordinator.data["energy_delivered"])
+        if value == 0.0 and self._last_energy_value > 0.0:
+            self._last_reset = datetime.now(timezone.utc)
+        self._last_energy_value = value
 
     @property
     def native_value(self) -> float | None:
-        value = self.coordinator.data["energy_delivered"]
-        # Record reset time when value drops to 0 (end of session)
-        if value == 0 and self._last_energy_value > 0:
-            self._last_reset = datetime.now(timezone.utc)
-        self._last_energy_value = value
-        return value
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data["energy_delivered"]
 
     @property
     def last_reset(self) -> datetime:
