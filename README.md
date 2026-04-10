@@ -4,6 +4,12 @@ Home Assistant custom integration for ABB Terra AC EV chargers using Modbus TCP.
 
 This integration connects directly to a charger over the local network and polls a single Modbus register block for charger status, measurements, and control values. It is intended for ABB Terra AC chargers that expose the documented Modbus TCP interface.
 
+## Session pause vs stop
+
+**To pause charging while keeping the session alive**, set **Charging Current Limit** to **0 A**. The charger follows IEC 61851-1 minimum current behaviour and will not end the session the way a **Stop Charging** command does.
+
+**Stop Charging** ends the session on the charger side. Depending on vehicle and charger behaviour, **starting again may require a new start command** after a stop.
+
 ## Features
 
 - UI-based setup through Home Assistant config flow
@@ -11,7 +17,9 @@ This integration connects directly to a charger over the local network and polls
 - Local polling over Modbus TCP
 - Charger device in the Home Assistant device registry
 - Sensors for:
-  - charging state
+  - charging state (raw register value)
+  - derived session state (idle, active, paused by current vs command, etc.)
+  - last start/stop command issued from Home Assistant
   - error code
   - socket lock state
   - active power
@@ -63,7 +71,7 @@ The integration does not currently support:
 - Multiple devices behind a single config entry
 - Charger-side diagnostics downloads
 - Firmware updates
-- Custom Home Assistant services beyond the entity services exposed by switch and number entities
+- Custom Home Assistant services beyond the entity services exposed by button, switch, and number entities
 
 ## Installation
 
@@ -120,8 +128,9 @@ This integration currently supports the following user-configurable parameters t
 - `port`
   The Modbus TCP port used for communication. In most installations this is `502`.
 
-There is no options flow yet. If the charger IP address, hostname, or port changes, remove the integration entry and add it again with the new values.
-Use the integration reconfiguration flow from Home Assistant to update the existing config entry without deleting it.
+**Options** (under the integration’s **Configure** menu): **polling interval** (`scan_interval`) from 5 to 300 seconds. This does not change the charger IP or port.
+
+If the charger IP address, hostname, or port changes, use the integration **reconfigure** flow to update the existing config entry without deleting it.
 Remove and re-add the integration only if reconfiguration does not solve the problem.
 
 ## What the integration provides

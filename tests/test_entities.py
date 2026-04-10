@@ -6,10 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.abb_terra_ac.const import DOMAIN, CHARGING_STATES, ERROR_CODES, SOCKET_LOCK_STATES
+from custom_components.abb_terra_ac.const import DOMAIN, ERROR_CODES, SOCKET_LOCK_STATES
+from custom_components.abb_terra_ac.session_state import LastCommand
+from tests.const import mock_config_entry_kwargs
 from custom_components.abb_terra_ac.number import AbbTerraAcFallbackLimit
-from custom_components.abb_terra_ac.switch import AbbTerraAcChargingSwitch
+from custom_components.abb_terra_ac.button import AbbTerraAcStartChargingButton
 from homeassistant.components.number import ATTR_VALUE, SERVICE_SET_VALUE
+from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
+from homeassistant.components.button import SERVICE_PRESS
 from homeassistant.const import ATTR_ENTITY_ID, CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -25,7 +29,9 @@ _INIT_MODBUS = "custom_components.abb_terra_ac.AsyncModbusTcpClient"
 
 _EXPECTED_ENTITY_SUFFIXES = frozenset(
     {
-        "charging_state",
+        "charging_state_raw",
+        "session_state",
+        "last_command",
         "serial_number",
         "firmware_version",
         "error_code",
@@ -39,7 +45,9 @@ _EXPECTED_ENTITY_SUFFIXES = frozenset(
         "voltage_l2",
         "voltage_l3",
         "actual_current_limit",
-        "charging",
+        "start_charging",
+        "stop_charging",
+        "is_charging",
         "lock",
         "current_limit",
         "fallback_limit",
@@ -106,10 +114,7 @@ async def _async_setup_with_registers(
     hass: HomeAssistant, registers: list[int]
 ) -> tuple[MockConfigEntry, object]:
     """Set up config entry with mocked Modbus returning ``registers``."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        data={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
-    )
+    entry = MockConfigEntry(**mock_config_entry_kwargs())
     entry.add_to_hass(hass)
     mock_client = create_mock_modbus_client(
         connect=True, read_error=False, registers=registers
@@ -135,7 +140,11 @@ async def test_entity_registry_matches_integration(hass: HomeAssistant) -> None:
     by_suffix = {_suffix(e, entry.entry_id): e for e in entries}
     for suffix, ent in by_suffix.items():
         assert ent.platform == DOMAIN, suffix
-        if suffix in ("charging", "lock"):
+        if suffix in ("start_charging", "stop_charging"):
+            assert ent.domain == "button", suffix
+        elif suffix == "is_charging":
+            assert ent.domain == "binary_sensor", suffix
+        elif suffix == "lock":
             assert ent.domain == "switch", suffix
         elif suffix in ("current_limit", "fallback_limit"):
             assert ent.domain == "number", suffix
@@ -159,12 +168,14 @@ async def test_entities_use_has_entity_name(hass: HomeAssistant) -> None:
     registers = make_holding_registers_37()
     entry, _ = await _async_setup_with_registers(hass, registers)
 
-    charging_state_id = _entity_id_for(hass, entry.entry_id, "charging_state")
-    charging_switch_id = _entity_id_for(hass, entry.entry_id, "charging")
+    raw_id = _entity_id_for(hass, entry.entry_id, "charging_state_raw")
+    session_id = _entity_id_for(hass, entry.entry_id, "session_state")
+    start_id = _entity_id_for(hass, entry.entry_id, "start_charging")
     current_limit_id = _entity_id_for(hass, entry.entry_id, "current_limit")
 
-    assert hass.states.get(charging_state_id).attributes["friendly_name"] == "ABB Terra AC Charger Charging State"
-    assert hass.states.get(charging_switch_id).attributes["friendly_name"] == "ABB Terra AC Charger Start/Stop Charging"
+    assert hass.states.get(raw_id).attributes["friendly_name"] == "ABB Terra AC Charger Charging State (raw)"
+    assert hass.states.get(session_id).attributes["friendly_name"] == "ABB Terra AC Charger Session State"
+    assert hass.states.get(start_id).attributes["friendly_name"] == "ABB Terra AC Charger Start Charging"
     assert hass.states.get(current_limit_id).attributes["friendly_name"] == "ABB Terra AC Charger Charging Current Limit"
 
 
@@ -178,8 +189,10 @@ async def test_entities_use_expected_entity_categories(hass: HomeAssistant) -> N
     assert registry.async_get(_entity_id_for(hass, entry.entry_id, "serial_number")).entity_category == "diagnostic"
     assert registry.async_get(_entity_id_for(hass, entry.entry_id, "firmware_version")).entity_category == "diagnostic"
     assert registry.async_get(_entity_id_for(hass, entry.entry_id, "error_code")).entity_category == "diagnostic"
-    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "current_limit")).entity_category is None
-    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "fallback_limit")).entity_category is None
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "charging_state_raw")).entity_category == "diagnostic"
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "last_command")).entity_category == "diagnostic"
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "current_limit")).entity_category == "config"
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "fallback_limit")).entity_category == "config"
 
 
 async def test_entities_use_expected_device_classes(hass: HomeAssistant) -> None:
@@ -187,7 +200,7 @@ async def test_entities_use_expected_device_classes(hass: HomeAssistant) -> None
     registers = make_holding_registers_37()
     entry, _ = await _async_setup_with_registers(hass, registers)
 
-    charging_state_id = _entity_id_for(hass, entry.entry_id, "charging_state")
+    last_command_id = _entity_id_for(hass, entry.entry_id, "last_command")
     error_code_id = _entity_id_for(hass, entry.entry_id, "error_code")
     socket_lock_id = _entity_id_for(hass, entry.entry_id, "socket_lock_state")
     active_power_id = _entity_id_for(hass, entry.entry_id, "active_power")
@@ -195,10 +208,9 @@ async def test_entities_use_expected_device_classes(hass: HomeAssistant) -> None
     current_id = _entity_id_for(hass, entry.entry_id, "current_l1")
     voltage_id = _entity_id_for(hass, entry.entry_id, "voltage_l1")
     actual_limit_id = _entity_id_for(hass, entry.entry_id, "actual_current_limit")
-    charging_switch_id = _entity_id_for(hass, entry.entry_id, "charging")
     lock_switch_id = _entity_id_for(hass, entry.entry_id, "lock")
 
-    assert hass.states.get(charging_state_id).attributes["device_class"] == "enum"
+    assert hass.states.get(last_command_id).attributes["device_class"] == "enum"
     assert hass.states.get(error_code_id).attributes["device_class"] == "enum"
     assert hass.states.get(socket_lock_id).attributes["device_class"] == "enum"
     assert hass.states.get(active_power_id).attributes["device_class"] == "power"
@@ -206,7 +218,7 @@ async def test_entities_use_expected_device_classes(hass: HomeAssistant) -> None
     assert hass.states.get(current_id).attributes["device_class"] == "current"
     assert hass.states.get(voltage_id).attributes["device_class"] == "voltage"
     assert hass.states.get(actual_limit_id).attributes["device_class"] == "current"
-    assert hass.states.get(charging_switch_id).attributes["device_class"] == "switch"
+    assert hass.states.get(_entity_id_for(hass, entry.entry_id, "session_state")).attributes.get("device_class") == "enum"
     assert hass.states.get(lock_switch_id).attributes["device_class"] == "switch"
 
 
@@ -227,8 +239,10 @@ async def test_sensor_states_reflect_registers(hass: HomeAssistant) -> None:
     )
     entry, _ = await _async_setup_with_registers(hass, registers)
 
-    charging_id = _entity_id_for(hass, entry.entry_id, "charging_state")
-    assert hass.states.get(charging_id).state == CHARGING_STATES[4]
+    raw_id = _entity_id_for(hass, entry.entry_id, "charging_state_raw")
+    assert hass.states.get(raw_id).state == "4"
+    session_id = _entity_id_for(hass, entry.entry_id, "session_state")
+    assert hass.states.get(session_id).state == "active"
 
     err_id = _entity_id_for(hass, entry.entry_id, "error_code")
     assert hass.states.get(err_id).state == ERROR_CODES[0]
@@ -251,25 +265,23 @@ async def test_sensor_states_reflect_registers(hass: HomeAssistant) -> None:
     e_id = _entity_id_for(hass, entry.entry_id, "energy_delivered")
     assert float(hass.states.get(e_id).state) == pytest.approx(12345.0)
 
+    is_charging_id = _entity_id_for(hass, entry.entry_id, "is_charging")
+    assert hass.states.get(is_charging_id).state == "on"
 
-async def test_switch_charging_turn_on_writes_modbus(hass: HomeAssistant) -> None:
-    """Starting charging issues Modbus write to register 4105h."""
+
+async def test_button_start_charging_writes_modbus(hass: HomeAssistant) -> None:
+    """Start charging button issues Modbus write to register 4105h (value 0)."""
     registers = make_holding_registers_37(charging_state_nibble=0)
     entry, mock_client = await _async_setup_with_registers(hass, registers)
 
-    entity_id = _entity_id_for(hass, entry.entry_id, "charging")
-    assert hass.states.get(entity_id).state == "off"
+    entity_id = _entity_id_for(hass, entry.entry_id, "start_charging")
 
-    with patch(
-        "custom_components.abb_terra_ac.switch.asyncio.sleep",
-        new_callable=AsyncMock,
-    ):
-        await hass.services.async_call(
-            "switch",
-            "turn_on",
-            {ATTR_ENTITY_ID: entity_id},
-            blocking=True,
-        )
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        SERVICE_PRESS,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
     await hass.async_block_till_done()
 
     assert mock_client.write_register.await_count >= 1
@@ -281,24 +293,19 @@ async def test_switch_charging_turn_on_writes_modbus(hass: HomeAssistant) -> Non
     assert match
 
 
-async def test_switch_charging_turn_off_writes_modbus(hass: HomeAssistant) -> None:
-    """Stopping charging issues Modbus write to register 4105h."""
+async def test_button_stop_charging_writes_modbus(hass: HomeAssistant) -> None:
+    """Stop charging button issues Modbus write to register 4105h (value 1)."""
     registers = make_holding_registers_37(charging_state_nibble=4)
     entry, mock_client = await _async_setup_with_registers(hass, registers)
 
-    entity_id = _entity_id_for(hass, entry.entry_id, "charging")
-    assert hass.states.get(entity_id).state == "on"
+    entity_id = _entity_id_for(hass, entry.entry_id, "stop_charging")
 
-    with patch(
-        "custom_components.abb_terra_ac.switch.asyncio.sleep",
-        new_callable=AsyncMock,
-    ):
-        await hass.services.async_call(
-            "switch",
-            "turn_off",
-            {ATTR_ENTITY_ID: entity_id},
-            blocking=True,
-        )
+    await hass.services.async_call(
+        BUTTON_DOMAIN,
+        SERVICE_PRESS,
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
     await hass.async_block_till_done()
 
     assert mock_client.write_register.await_count >= 1
@@ -318,22 +325,18 @@ async def test_switch_lock_turn_on_and_turn_off_write_modbus(hass: HomeAssistant
     entity_id = _entity_id_for(hass, entry.entry_id, "lock")
     assert hass.states.get(entity_id).state == "off"
 
-    with patch(
-        "custom_components.abb_terra_ac.switch.asyncio.sleep",
-        new_callable=AsyncMock,
-    ):
-        await hass.services.async_call(
-            "switch",
-            "turn_on",
-            {ATTR_ENTITY_ID: entity_id},
-            blocking=True,
-        )
-        await hass.services.async_call(
-            "switch",
-            "turn_off",
-            {ATTR_ENTITY_ID: entity_id},
-            blocking=True,
-        )
+    await hass.services.async_call(
+        "switch",
+        "turn_on",
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {ATTR_ENTITY_ID: entity_id},
+        blocking=True,
+    )
     await hass.async_block_till_done()
 
     writes = {
@@ -509,20 +512,21 @@ async def test_coordinator_restores_invalid_current_limit(hass: HomeAssistant) -
     assert found
 
 
-async def test_switch_write_exception_raises_translated_error() -> None:
+async def test_button_write_exception_raises_translated_error() -> None:
     """Entity actions should raise translated HA errors on connection failure."""
-    entry = MockConfigEntry(domain=DOMAIN, data={CONF_HOST: "192.168.1.50", CONF_PORT: 502})
+    entry = MockConfigEntry(**mock_config_entry_kwargs())
     coordinator = MagicMock()
     coordinator.data = {"charging_state": 0}
+    coordinator.last_command = "none"
+    coordinator.modbus_lock = asyncio.Lock()
     coordinator.async_request_refresh = AsyncMock()
     client = MagicMock()
     client.write_register = AsyncMock(side_effect=RuntimeError("boom"))
 
-    entity = AbbTerraAcChargingSwitch(coordinator, entry, client)
+    entity = AbbTerraAcStartChargingButton(coordinator, entry, client)
 
-    with patch("custom_components.abb_terra_ac.switch.asyncio.sleep", new=AsyncMock()):
-        with pytest.raises(HomeAssistantError) as err:
-            await entity.async_turn_on()
+    with pytest.raises(HomeAssistantError) as err:
+        await entity.async_press()
 
     assert err.value.translation_domain == DOMAIN
     assert err.value.translation_key == "charger_unavailable"
@@ -530,9 +534,10 @@ async def test_switch_write_exception_raises_translated_error() -> None:
 
 async def test_number_write_error_result_raises_translated_error() -> None:
     """Modbus error responses should raise translated HA errors."""
-    entry = MockConfigEntry(domain=DOMAIN, data={CONF_HOST: "192.168.1.50", CONF_PORT: 502})
+    entry = MockConfigEntry(**mock_config_entry_kwargs())
     coordinator = MagicMock()
     coordinator.data = {"fallback_limit": 0, "user_settable_max_current": 16}
+    coordinator.modbus_lock = asyncio.Lock()
     coordinator.async_request_refresh = AsyncMock()
     client = MagicMock()
     write_result = MagicMock()
@@ -546,3 +551,25 @@ async def test_number_write_error_result_raises_translated_error() -> None:
 
     assert err.value.translation_domain == DOMAIN
     assert err.value.translation_key == "write_failed"
+
+
+async def test_session_state_paused_by_command_after_stop_and_state_five(
+    hass: HomeAssistant,
+) -> None:
+    """With last_command stop and raw state 5, session_state is paused_by_command."""
+    registers = make_holding_registers_37(
+        charging_state_nibble=4,
+        charging_current_modbus_amps=16.0,
+        socket_lock_raw_32=273,
+    )
+    entry, _ = await _async_setup_with_registers(hass, registers)
+    coordinator = entry.runtime_data.coordinator
+    coordinator.last_command = LastCommand.STOP
+    new_data = dict(coordinator.data)
+    new_data["charging_state"] = 5
+    new_data["charging_current_limit_modbus"] = 16.0
+    coordinator.async_set_updated_data(new_data)
+    await hass.async_block_till_done()
+
+    session_id = _entity_id_for(hass, entry.entry_id, "session_state")
+    assert hass.states.get(session_id).state == "paused_by_command"

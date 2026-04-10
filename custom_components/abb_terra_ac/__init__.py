@@ -12,7 +12,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from pymodbus.client import AsyncModbusTcpClient
-from pymodbus.exceptions import ConnectionException
+from pymodbus.exceptions import ConnectionException, ModbusIOException
 
 from .const import (
     CONF_HOST,
@@ -20,12 +20,11 @@ from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    MODBUS_CONNECT_TIMEOUT,
     MODBUS_READ_TIMEOUT,
     PLATFORMS,
     AbbTerraAcData,
 )
-from .modbus import async_close_client
+from .modbus import async_close_client, async_modbus_call
 from .modbus_write import async_write_register, async_write_registers
 from .session_state import LastCommand, SessionState, derive_session_state
 
@@ -48,7 +47,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
 
-    client = AsyncModbusTcpClient(host=host, port=port)
+    client = AsyncModbusTcpClient(
+        host=host,
+        port=port,
+        timeout=MODBUS_READ_TIMEOUT,
+    )
     coordinator = AbbTerraAcDataUpdateCoordinator(hass, client, entry)
 
     await coordinator.async_config_entry_first_refresh()
@@ -106,6 +109,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         self.client = client
         self.config_entry = entry
         self.entry_id = entry.entry_id
+        self._modbus_lock = asyncio.Lock()
         scan_s = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
         self.serial_number: str | None = None
         self._is_available = True
@@ -156,18 +160,13 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
     async def _async_update_data(self) -> AbbTerraAcData:
         """Fetch the latest data from the charger."""
         try:
-            if not self.client.connected:
-                connected = await asyncio.wait_for(
-                    self.client.connect(),
-                    timeout=MODBUS_CONNECT_TIMEOUT,
-                )
-                if not connected:
-                    msg = "connect() returned False"
-                    raise ConnectionException(msg)
-
-            result = await asyncio.wait_for(
-                self.client.read_holding_registers(address=16384, count=37),
-                timeout=MODBUS_READ_TIMEOUT,
+            result = await async_modbus_call(
+                self.client,
+                "read_holding_registers",
+                lock=self._modbus_lock,
+                retry=True,
+                address=16384,
+                count=37,
             )
 
             if result.isError():
@@ -245,7 +244,12 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
                     self._fallback_fix_attempted = True
                     restore_value = self._last_valid_fallback_limit if self._last_valid_fallback_limit is not None else user_max
                     try:
-                        await async_write_register(self.client, 16649, int(restore_value))
+                        await async_write_register(
+                            self.client,
+                            16649,
+                            int(restore_value),
+                            lock=self._modbus_lock,
+                        )
                         _LOGGER.info("Fallback limit restored to %sA.", restore_value)
                         data["fallback_limit"] = restore_value
                         self._async_delete_limit_issue(_ISSUE_ID_INVALID_FALLBACK_LIMIT)
@@ -280,7 +284,10 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
                     low_word = value_to_send & 0xFFFF
                     try:
                         await async_write_registers(
-                            self.client, 16640, [high_word, low_word]
+                            self.client,
+                            16640,
+                            [high_word, low_word],
+                            lock=self._modbus_lock,
                         )
                         _LOGGER.info("Charging current limit restored to %sA.", restore_value)
                         data["charging_current_limit_modbus"] = restore_value
@@ -300,7 +307,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             self._sync_last_command_after_poll(data)
             return data
 
-        except (ConnectionException, asyncio.TimeoutError) as err:
+        except (ConnectionException, asyncio.TimeoutError, ModbusIOException) as err:
             self._async_log_unavailable(f"Connection error: {err}")
             raise UpdateFailed(f"Connection error: {err}")
         except Exception as err:
@@ -343,6 +350,11 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         if self._is_available:
             _LOGGER.warning("ABB Terra AC charger became unavailable: %s", reason)
         self._is_available = False
+
+    @property
+    def modbus_lock(self) -> asyncio.Lock:
+        """Shared lock used to serialize Modbus reads and writes."""
+        return self._modbus_lock
 
     def _decode_32bit_value(self, regs: list[int], resolution: float = 1) -> float:
         """Decode a 32-bit value from two registers."""

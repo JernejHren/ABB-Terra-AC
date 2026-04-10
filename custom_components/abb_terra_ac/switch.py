@@ -73,10 +73,20 @@ class AbbTerraAcLockSwitch(AbbTerraAcBaseSwitch):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Lock cable (register 4103h, value 1)."""
-        await async_write_register(self.client, 16643, 1)
+        await async_write_register(
+            self.client,
+            16643,
+            1,
+            lock=self.coordinator.modbus_lock,
+        )
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Unlock cable (register 4103h, value 0)."""
-        await async_write_register(self.client, 16643, 0)
+        await async_write_register(
+            self.client,
+            16643,
+            0,
+            lock=self.coordinator.modbus_lock,
+        )
         await self.coordinator.async_request_refresh()

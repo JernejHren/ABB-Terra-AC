@@ -69,7 +69,12 @@ class AbbTerraAcStartChargingButton(AbbTerraAcBaseButton):
         """Start charging; retry once with a full refresh between attempts."""
         self.coordinator.last_command = LastCommand.START
         for _ in range(2):
-            await async_write_register(self.client, REG_START_STOP_SESSION, VAL_START_SESSION)
+            await async_write_register(
+                self.client,
+                REG_START_STOP_SESSION,
+                VAL_START_SESSION,
+                lock=self.coordinator.modbus_lock,
+            )
             await self.coordinator.async_request_refresh()
             data = self.coordinator.data
             if not data or data["charging_state"] not in (0, 1):
@@ -92,5 +97,10 @@ class AbbTerraAcStopChargingButton(AbbTerraAcBaseButton):
     async def async_press(self) -> None:
         """Stop charging session."""
         self.coordinator.last_command = LastCommand.STOP
-        await async_write_register(self.client, REG_START_STOP_SESSION, VAL_STOP_SESSION)
+        await async_write_register(
+            self.client,
+            REG_START_STOP_SESSION,
+            VAL_STOP_SESSION,
+            lock=self.coordinator.modbus_lock,
+        )
         await self.coordinator.async_request_refresh()

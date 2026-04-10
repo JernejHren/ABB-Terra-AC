@@ -2,7 +2,42 @@
 
 Vse pomembne spremembe te integracije so naštete tukaj. Skladno z [Keep a Changelog](https://keepachangelog.com/sl/1.0.0/).
 
+## [0.3.3]
+
+### Release notes (EN)
+
+- Fixed intermittent `pymodbus` errors like `Request cancelled outside pymodbus` by avoiding external asyncio cancellations around Modbus requests.
+- Serialized Modbus operations with a shared `asyncio.Lock` to prevent overlapping reads/writes on the same TCP client.
+- Added automatic reconnect and a single retry for coordinator polling reads after transient I/O failures.
+- Applied the same resilient Modbus call path to the config flow probe and to entity write helpers.
+- Added tests covering `ModbusIOException` handling and reconnect+retry behavior.
+
+### Popravljeno
+
+- Odpravljena občasna napaka `Request cancelled outside pymodbus` pri branju registrov, ker integracija ne prekinja več `pymodbus` klicev z zunanjim `asyncio.wait_for`.
+
+### Izboljšano
+
+- Vsi Modbus klici (poll + zapisi) so serializirani prek skupnega `asyncio.Lock`, da se branja in zapisi ne prekrivajo na istem TCP odjemalcu.
+- Coordinator ob prehodni I/O napaki naredi reconnect in enkrat ponovi branje (retry samo za read).
+- Enako robustno obnašanje se uporabi tudi pri validaciji v config flowu.
+
 ## [0.3.0]
+
+### Release notes (EN)
+
+- Added a **Reconfigure flow** to change charger `host`/`port` from the UI without removing the integration.
+- Added **Diagnostics** export for the config entry with sensitive fields redacted.
+- Added **Repair issue** warnings when the charger reports invalid limits after a firmware reset and automatic recovery fails.
+- Added **translations** for entities, icons, config flow strings, and exceptions for a better UI experience.
+- Replaced the charging enable/disable **switch** with separate **Start** and **Stop** buttons.
+- Improved type safety with **strict typing** and `mypy` configuration.
+- Improved docs (supported devices, features, limitations, examples, troubleshooting).
+- Improved test coverage around coordinator recovery logging, diagnostics, and reconfigure flow.
+- Fixed UI setup and reconfiguration regressions:
+  - `reconfigure` stays on the **reconfigure** step when validation fails (no step switching back to `user`).
+  - Options flow uses suggested values consistently for the scan interval field.
+- Improved runtime reliability by applying **consistent Modbus connect/read timeouts** in both config flow and coordinator polling to avoid hangs.
 
 ### Dodano
 
@@ -17,6 +52,10 @@ Vse pomembne spremembe te integracije so naštete tukaj. Skladno z [Keep a Chang
 - Boljša dokumentacija: podprte naprave, funkcije, omejitve, primeri uporabe, troubleshooting in obnašanje osveževanja.
 - Stabilnejši testi za coordinator recovery logiko, diagnostics in reconfiguration flow.
 - Izboljšana kakovost integracije po Home Assistant Quality Scale smernicah.
+
+### Spremenjeno
+
+- Stikalo za vklop/izklop polnjenja je zamenjano z ločenima gumboma **Start** in **Stop**.
 
 ### Opombe
 

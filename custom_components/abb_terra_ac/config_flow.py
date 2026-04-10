@@ -11,16 +11,16 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow
 from pymodbus.client import AsyncModbusTcpClient
+from pymodbus.exceptions import ConnectionException, ModbusIOException
 
 from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    MODBUS_CONNECT_TIMEOUT,
     MODBUS_READ_TIMEOUT,
 )
-from .modbus import async_close_client
+from .modbus import async_close_client, async_modbus_call
 from .options_flow import AbbTerraAcOptionsFlow
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,24 +76,28 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Validate connection details by probing the charger."""
         host = str(user_input[CONF_HOST])
         port = int(user_input[CONF_PORT])
-        client = AsyncModbusTcpClient(host=host, port=port)
+        client = AsyncModbusTcpClient(
+            host=host,
+            port=port,
+            timeout=MODBUS_READ_TIMEOUT,
+        )
 
         try:
-            connected = await asyncio.wait_for(
-                client.connect(),
-                timeout=MODBUS_CONNECT_TIMEOUT,
-            )
-            if not connected:
-                msg = "cannot_connect"
-                raise ValueError(msg)
-
-            result = await asyncio.wait_for(
-                client.read_holding_registers(address=16384, count=1),
-                timeout=MODBUS_READ_TIMEOUT,
+            result = await async_modbus_call(
+                client,
+                "read_holding_registers",
+                retry=False,
+                address=16384,
+                count=1,
             )
             if result.isError():
                 msg = "invalid_response"
                 raise ValueError(msg)
+        except ConnectionException as err:
+            if str(err) == "connect() returned False":
+                msg = "cannot_connect"
+                raise ValueError(msg) from err
+            raise
         finally:
             if client.connected:
                 await async_close_client(client)
@@ -129,7 +133,7 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         except ValueError as err:
             errors["base"] = str(err)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, ModbusIOException):
             errors["base"] = "timeout"
         except AbortFlow:
             raise
@@ -164,7 +168,7 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         except ValueError as err:
             errors["base"] = str(err)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, ModbusIOException):
             errors["base"] = "timeout"
         except AbortFlow:
             raise

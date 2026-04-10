@@ -85,7 +85,12 @@ class AbbTerraAcChargingCurrentLimit(AbbTerraAcBaseNumber):
         value_to_send = int(value * 1000)
         high_word = value_to_send >> 16
         low_word = value_to_send & 0xFFFF
-        await async_write_registers(self.client, 16640, [high_word, low_word])
+        await async_write_registers(
+            self.client,
+            16640,
+            [high_word, low_word],
+            lock=self.coordinator.modbus_lock,
+        )
         await self.coordinator.async_request_refresh()
 
 
@@ -121,5 +126,10 @@ class AbbTerraAcFallbackLimit(AbbTerraAcBaseNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new fallback limit."""
-        await async_write_register(self.client, 16649, int(value))
+        await async_write_register(
+            self.client,
+            16649,
+            int(value),
+            lock=self.coordinator.modbus_lock,
+        )
         await self.coordinator.async_request_refresh()
