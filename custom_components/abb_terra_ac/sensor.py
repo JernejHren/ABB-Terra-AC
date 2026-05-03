@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
@@ -264,9 +263,20 @@ class AbbTerraAcActivePowerSensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
-    """Sensor for energy delivered in the current session."""
+    """Sensor for lifetime energy delivered by the charger.
+
+    Register 401Eh is a monotonically increasing lifetime counter — it is NOT
+    a per-session counter. The value on the charger display confirms this: it
+    shows cumulative energy across all sessions.
+
+    TOTAL_INCREASING is the correct state_class for this register:
+    - HA handles counter resets (e.g. after a charger reboot) automatically
+    - Energy Dashboard receives stable, non-negative statistics
+    - No manual last_reset management needed
+    """
+
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
 
     def __init__(
@@ -275,28 +285,12 @@ class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
         super().__init__(coordinator, entry)
         self._attr_translation_key = "energy_delivered"
         self._attr_unique_id = f"{self._entry_id}_energy_delivered"
-        self._last_energy_value: float = 0.0
-        self._last_reset: datetime = datetime.now(timezone.utc)
-
-    def _handle_coordinator_update(self) -> None:
-        """Track session boundary when energy resets to 0 (avoid side effects in native_value)."""
-        super()._handle_coordinator_update()
-        if not self.coordinator.data:
-            return
-        value = float(self.coordinator.data["energy_delivered"])
-        if value == 0.0 and self._last_energy_value > 0.0:
-            self._last_reset = datetime.now(timezone.utc)
-        self._last_energy_value = value
 
     @property
     def native_value(self) -> float | None:
         if not self.coordinator.data:
             return None
         return self.coordinator.data["energy_delivered"]
-
-    @property
-    def last_reset(self) -> datetime:
-        return self._last_reset
 
 
 class AbbTerraAcCurrentL1Sensor(AbbTerraAcBaseSensor):
