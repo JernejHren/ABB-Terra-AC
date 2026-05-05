@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
@@ -263,20 +265,22 @@ class AbbTerraAcActivePowerSensor(AbbTerraAcBaseSensor):
 
 
 class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
-    """Sensor for lifetime energy delivered by the charger.
+    """Sensor for energy delivered in the current charging session.
 
-    Register 401Eh is a monotonically increasing lifetime counter — it is NOT
-    a per-session counter. The value on the charger display confirms this: it
-    shows cumulative energy across all sessions.
+    Per ABB Modbus documentation (section 5.14), register 401Eh reports
+    the transferred energy of the *current charging session* — it resets
+    to 0 at the start of every new session. There is no lifetime energy
+    counter exposed via Modbus on this device.
 
-    TOTAL_INCREASING is the correct state_class for this register:
-    - HA handles counter resets (e.g. after a charger reboot) automatically
-    - Energy Dashboard receives stable, non-negative statistics
-    - No manual last_reset management needed
+    SensorStateClass.TOTAL with last_reset is therefore correct:
+    - last_reset is updated whenever the value drops back toward 0,
+      signalling that a new session has begun.
+    - HA Energy Dashboard records each session's contribution correctly
+      and never sees a negative delta.
     """
 
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
 
     def __init__(
@@ -285,12 +289,37 @@ class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
         super().__init__(coordinator, entry)
         self._attr_translation_key = "energy_delivered"
         self._attr_unique_id = f"{self._entry_id}_energy_delivered"
+        self._last_energy_value: float = 0.0
+        self._last_reset: datetime = datetime.now(timezone.utc)
+
+    def _handle_coordinator_update(self) -> None:
+        """Detect session boundary and update last_reset before HA sees the new value.
+
+        A new session is detected when the value drops by more than 100 Wh compared
+        to the previous reading. An absolute threshold is used rather than a relative
+        one to keep the logic deterministic and easy to test:
+        - avoids false triggers at startup (both values near zero)
+        - a legitimate mid-session drop of 100 Wh cannot occur on a charger that
+          only delivers energy (register is unsigned and only increases within a session)
+        Updating last_reset here — before super() propagates the state — ensures
+        HA never calculates a negative energy delta.
+        """
+        if self.coordinator.data:
+            value = float(self.coordinator.data.get("energy_delivered", 0.0))
+            if self._last_energy_value - value > 100:
+                self._last_reset = datetime.now(timezone.utc)
+            self._last_energy_value = value
+        super()._handle_coordinator_update()
 
     @property
     def native_value(self) -> float | None:
         if not self.coordinator.data:
             return None
-        return self.coordinator.data["energy_delivered"]
+        return self.coordinator.data.get("energy_delivered")
+
+    @property
+    def last_reset(self) -> datetime:
+        return self._last_reset
 
 
 class AbbTerraAcCurrentL1Sensor(AbbTerraAcBaseSensor):
