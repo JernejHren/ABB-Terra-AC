@@ -192,6 +192,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
                 "communication_timeout": 0,
                 "charging_current_limit_modbus": 0.0,
                 "fallback_limit": 0,
+                "charging_at_reduced_current": False,
             }
             registers = result.registers
 
@@ -202,15 +203,17 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
 
             data["firmware_version"] = self._decode_firmware_version(registers[4:6])
             data["user_settable_max_current"] = self._decode_32bit_value(registers[6:8], 0.001)
-            data["error_code"] = registers[8]
+            data["error_code"] = int(self._decode_32bit_value(registers[8:10]))
             data["socket_lock_state"] = int(self._decode_32bit_value(registers[10:12]))
 
             # Charging state: per testing, actual state is in register 400Dh (index 13),
             # encoded in the high byte. Documentation states 400Ch but it always returns 0.
+            # Bit 7 of high byte = charging at reduced current.
             charging_state_register = registers[13]
             high_byte = (charging_state_register >> 8) & 0xFF
             state_code = high_byte & 0x0F
             data["charging_state"] = state_code
+            data["charging_at_reduced_current"] = bool(high_byte & 0x80)
 
             data["charging_current_limit"] = self._decode_32bit_value(registers[14:16], 0.001)
             data["charging_current_l1"] = self._decode_32bit_value(registers[16:18], 0.001)

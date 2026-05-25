@@ -50,6 +50,9 @@ _EXPECTED_ENTITY_SUFFIXES = frozenset(
         "lock",
         "current_limit",
         "fallback_limit",
+        "user_settable_max_current",
+        "communication_timeout",
+        "reduced_current",
     }
 )
 
@@ -190,7 +193,10 @@ async def test_entities_use_expected_entity_categories(hass: HomeAssistant) -> N
     assert registry.async_get(_entity_id_for(hass, entry.entry_id, "error_code")).entity_category == "diagnostic"
     assert registry.async_get(_entity_id_for(hass, entry.entry_id, "charging_state_raw")).entity_category == "diagnostic"
     assert registry.async_get(_entity_id_for(hass, entry.entry_id, "last_command")).entity_category == "diagnostic"
-    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "current_limit")).entity_category == "config"
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "user_settable_max_current")).entity_category == "diagnostic"
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "reduced_current")).entity_category == "diagnostic"
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "current_limit")).entity_category is None
+
     assert registry.async_get(_entity_id_for(hass, entry.entry_id, "fallback_limit")).entity_category == "config"
 
 

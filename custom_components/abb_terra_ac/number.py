@@ -30,6 +30,7 @@ async def async_setup_entry(
     numbers = [
         AbbTerraAcChargingCurrentLimit(coordinator, entry, client),
         AbbTerraAcFallbackLimit(coordinator, entry, client),
+        AbbTerraAcCommunicationTimeout(coordinator, entry, client),
     ]
     async_add_entities(numbers, True)
 
@@ -129,6 +130,39 @@ class AbbTerraAcFallbackLimit(AbbTerraAcBaseNumber):
         await async_write_register(
             self.client,
             16649,
+            int(value),
+            lock=self.coordinator.modbus_lock,
+        )
+        await self.coordinator.async_request_refresh()
+
+
+class AbbTerraAcCommunicationTimeout(AbbTerraAcBaseNumber):
+    """Number entity for setting the Modbus communication timeout."""
+
+    def __init__(
+        self,
+        coordinator: AbbTerraAcDataUpdateCoordinator,
+        entry: ConfigEntry,
+        client: AsyncModbusTcpClient
+    ) -> None:
+        super().__init__(coordinator, entry, client)
+        self._attr_translation_key = "communication_timeout"
+        self._attr_unique_id = f"{self._config_entry_id}_communication_timeout"
+        self._attr_native_unit_of_measurement = "s"
+        self._attr_native_min_value = 10
+        self._attr_native_max_value = 65535
+        self._attr_native_step = 1
+        self._attr_mode = NumberMode.BOX
+
+    @property
+    def native_value(self) -> float | None:
+        return self.coordinator.data.get("communication_timeout")
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set new communication timeout."""
+        await async_write_register(
+            self.client,
+            16646,
             int(value),
             lock=self.coordinator.modbus_lock,
         )

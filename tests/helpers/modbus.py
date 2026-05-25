@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 def make_holding_registers_37(
     *,
     charging_state_nibble: int = 0,
+    reduced_current_bit: bool = False,
     socket_lock_raw_32: int = 0,
     error_code: int = 0,
     user_max_amps: float = 16.0,
@@ -16,6 +17,7 @@ def make_holding_registers_37(
     voltage_l1: float = 0.0,
     active_power_wh: int = 0,
     energy_wh: int = 0,
+    communication_timeout: int = 60,
 ) -> list[int]:
     """Build 37 registers (base 4000h block) matching coordinator decoding.
 
@@ -27,15 +29,21 @@ def make_holding_registers_37(
         r[idx] = (value >> 16) & 0xFFFF
         r[idx + 1] = value & 0xFFFF
 
-    r[8] = error_code & 0xFFFF
     write_u32(6, int(user_max_amps / 0.001))
+    write_u32(8, error_code & 0xFFFFFFFF)
     write_u32(10, int(socket_lock_raw_32) & 0xFFFFFFFF)
-    r[13] = (charging_state_nibble & 0x0F) << 8
+
+    high_byte = (charging_state_nibble & 0x0F)
+    if reduced_current_bit:
+        high_byte |= 0x80
+    r[13] = high_byte << 8
+
     write_u32(14, int(charging_current_limit_amps / 0.001))
     write_u32(16, int(charging_l1_amps / 0.001))
     write_u32(22, int(voltage_l1 / 0.1))
     write_u32(28, active_power_wh)
     write_u32(30, energy_wh)
+    r[32] = communication_timeout & 0xFFFF
     write_u32(34, int(charging_current_modbus_amps / 0.001))
     r[36] = fallback_limit & 0xFFFF
     return r

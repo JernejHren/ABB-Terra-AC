@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import AbbTerraAcDataUpdateCoordinator, AbbTerraAcRuntimeData
@@ -26,7 +27,10 @@ async def async_setup_entry(
     coordinator = runtime_data.coordinator
 
     async_add_entities(
-        [AbbTerraAcIsChargingBinarySensor(coordinator, entry)],
+        [
+            AbbTerraAcIsChargingBinarySensor(coordinator, entry),
+            AbbTerraAcReducedCurrentBinarySensor(coordinator, entry),
+        ],
         True,
     )
 
@@ -51,3 +55,25 @@ class AbbTerraAcIsChargingBinarySensor(AbbTerraAcEntity, BinarySensorEntity):
         if not self.coordinator.data:
             return None
         return self.coordinator.data["charging_state"] == _STATE_C2_CHARGING
+
+
+class AbbTerraAcReducedCurrentBinarySensor(AbbTerraAcEntity, BinarySensorEntity):
+    """True when charger is operating below the commanded current limit."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "charging_at_reduced_current"
+
+    def __init__(
+        self,
+        coordinator: AbbTerraAcDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator, entry.entry_id)
+        self._attr_unique_id = f"{self._config_entry_id}_reduced_current"
+
+    @property
+    def is_on(self) -> bool | None:
+        """True when reduced current bit is set."""
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("charging_at_reduced_current", False)

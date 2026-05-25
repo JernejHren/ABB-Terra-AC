@@ -61,6 +61,7 @@ async def async_setup_entry(
         AbbTerraAcVoltageL2Sensor(coordinator, entry),
         AbbTerraAcVoltageL3Sensor(coordinator, entry),
         AbbTerraAcCurrentLimitSensor(coordinator, entry),
+        AbbTerraAcUserSettableMaxCurrentSensor(coordinator, entry),
     ]
     async_add_entities(sensors, True)
 
@@ -453,3 +454,22 @@ class AbbTerraAcCurrentLimitSensor(AbbTerraAcBaseSensor):
     @property
     def native_value(self) -> float | None:
         return self.coordinator.data.get("charging_current_limit")
+
+
+class AbbTerraAcUserSettableMaxCurrentSensor(AbbTerraAcBaseSensor):
+    """Sensor for user-settable max current (hardware limit)."""
+    _attr_device_class = SensorDeviceClass.CURRENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self, coordinator: AbbTerraAcDataUpdateCoordinator, entry: ConfigEntry
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_translation_key = "user_settable_max_current"
+        self._attr_unique_id = f"{self._entry_id}_user_settable_max_current"
+
+    @property
+    def native_value(self) -> float | None:
+        return self.coordinator.data.get("user_settable_max_current")

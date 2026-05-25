@@ -140,6 +140,9 @@
       },
       "actual_current_limit": {
         "name": "Actual Current Limit"
+      },
+      "user_settable_max_current": {
+        "name": "User Settable Max Current"
       }
     },
     "switch": {
@@ -159,6 +162,9 @@
     "binary_sensor": {
       "is_charging": {
         "name": "Is Charging"
+      },
+      "charging_at_reduced_current": {
+        "name": "Charging at Reduced Current"
       }
     },
     "number": {
@@ -168,6 +174,9 @@
       },
       "fallback_limit": {
         "name": "Fallback Limit"
+      },
+      "communication_timeout": {
+        "name": "Communication Timeout"
       }
     }
   },

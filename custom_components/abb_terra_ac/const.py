@@ -53,6 +53,7 @@ class AbbTerraAcData(TypedDict):
     communication_timeout: int
     charging_current_limit_modbus: float
     fallback_limit: int
+    charging_at_reduced_current: bool
 
 # Charging states per IEC 61851-1
 CHARGING_STATES: Final[dict[int, str]] = {
