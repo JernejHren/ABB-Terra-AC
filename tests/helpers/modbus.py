@@ -1,6 +1,9 @@
 """Shared Modbus TCP mocks for ABB Terra AC tests."""
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
+
+from modbus_connection import ModbusConnectionError, ModbusExceptionError
 
 
 def make_holding_registers_37(
@@ -49,44 +52,49 @@ def make_holding_registers_37(
     return r
 
 
-def create_mock_modbus_client(
+def create_mock_modbus_unit(
     *,
     connect: bool = True,
     read_error: bool = False,
     registers: list[int] | None = None,
 ) -> MagicMock:
-    """Return a stand-in for pymodbus AsyncModbusTcpClient.
+    """Return a stand-in for a ``modbus_connection.ModbusUnit``.
 
-    The coordinator reads 37 holding registers; config flow probes with count=1.
-    A fixed length-37 register list satisfies both call sites.
+    ``read_holding_registers`` returns the register list directly (as the real
+    unit does). ``connect=False`` makes reads raise ``ModbusConnectionError``;
+    ``read_error=True`` makes them raise a Modbus exception response.
+
+    The coordinator reads 37 holding registers; the config flow probes with
+    count=1. A fixed length-37 register list satisfies both call sites.
     """
-    client = MagicMock()
-    client.connected = False
-
-    async def _connect() -> bool:
-        if connect:
-            client.connected = True
-        return connect
-
-    client.connect = AsyncMock(side_effect=_connect)
-
     regs = list(registers) if registers is not None else [0] * 37
     if len(regs) != 37:
         msg = "registers must have length 37"
         raise ValueError(msg)
 
-    read_result = MagicMock()
-    read_result.isError.return_value = read_error
-    read_result.registers = regs
-    client.read_holding_registers = AsyncMock(return_value=read_result)
+    unit = MagicMock()
+    unit.connected = connect
+    unit.require_timeout = MagicMock()
 
-    write_result = MagicMock()
-    write_result.isError.return_value = False
-    client.write_register = AsyncMock(return_value=write_result)
-    client.write_registers = AsyncMock(return_value=write_result)
+    if not connect:
+        unit.read_holding_registers = AsyncMock(
+            side_effect=ModbusConnectionError("not connected")
+        )
+    elif read_error:
+        unit.read_holding_registers = AsyncMock(side_effect=ModbusExceptionError(2))
+    else:
+        unit.read_holding_registers = AsyncMock(return_value=regs)
 
-    def _close() -> None:
-        client.connected = False
+    unit.write_register = AsyncMock(return_value=None)
+    unit.write_registers = AsyncMock(return_value=None)
+    return unit
 
-    client.close = MagicMock(side_effect=_close)
-    return client
+
+def temporary_unit_factory(unit: MagicMock):
+    """Return a replacement for ``async_get_temporary_unit`` yielding ``unit``."""
+
+    @asynccontextmanager
+    async def _factory(hass, params, unit_id):
+        yield unit
+
+    return _factory

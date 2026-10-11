@@ -6,18 +6,14 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from pymodbus.client import AsyncModbusTcpClient
 
 from . import AbbTerraAcDataUpdateCoordinator, AbbTerraAcRuntimeData
+from .api import AbbTerraAcDevice
 from .entity import AbbTerraAcEntity
-from .modbus_write import async_write_register
+from .errors import async_run_device_action
 from .session_state import LastCommand
 
 PARALLEL_UPDATES = 0
-
-REG_START_STOP_SESSION = 16645
-VAL_START_SESSION = 0
-VAL_STOP_SESSION = 1
 
 
 async def async_setup_entry(
@@ -28,12 +24,12 @@ async def async_setup_entry(
     """Set up button entities from a config entry."""
     runtime_data: AbbTerraAcRuntimeData = entry.runtime_data
     coordinator = runtime_data.coordinator
-    client = runtime_data.client
+    device = runtime_data.device
 
     async_add_entities(
         [
-            AbbTerraAcStartChargingButton(coordinator, entry, client),
-            AbbTerraAcStopChargingButton(coordinator, entry, client),
+            AbbTerraAcStartChargingButton(coordinator, entry, device),
+            AbbTerraAcStopChargingButton(coordinator, entry, device),
         ],
         True,
     )
@@ -46,10 +42,10 @@ class AbbTerraAcBaseButton(AbbTerraAcEntity, ButtonEntity):
         self,
         coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
-        client: AsyncModbusTcpClient,
+        device: AbbTerraAcDevice,
     ) -> None:
         AbbTerraAcEntity.__init__(self, coordinator, entry.entry_id)
-        self.client = client
+        self.device = device
 
 
 class AbbTerraAcStartChargingButton(AbbTerraAcBaseButton):
@@ -59,9 +55,9 @@ class AbbTerraAcStartChargingButton(AbbTerraAcBaseButton):
         self,
         coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
-        client: AsyncModbusTcpClient,
+        device: AbbTerraAcDevice,
     ) -> None:
-        super().__init__(coordinator, entry, client)
+        super().__init__(coordinator, entry, device)
         self._attr_translation_key = "start_charging"
         self._attr_unique_id = f"{self._config_entry_id}_start_charging"
 
@@ -69,12 +65,7 @@ class AbbTerraAcStartChargingButton(AbbTerraAcBaseButton):
         """Start charging; retry once with a full refresh between attempts."""
         self.coordinator.last_command = LastCommand.START
         for _ in range(2):
-            await async_write_register(
-                self.client,
-                REG_START_STOP_SESSION,
-                VAL_START_SESSION,
-                lock=self.coordinator.modbus_lock,
-            )
+            await async_run_device_action(self.device.async_start_session())
             await self.coordinator.async_request_refresh()
             data = self.coordinator.data
             if not data or data["charging_state"] not in (0, 1):
@@ -88,19 +79,14 @@ class AbbTerraAcStopChargingButton(AbbTerraAcBaseButton):
         self,
         coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
-        client: AsyncModbusTcpClient,
+        device: AbbTerraAcDevice,
     ) -> None:
-        super().__init__(coordinator, entry, client)
+        super().__init__(coordinator, entry, device)
         self._attr_translation_key = "stop_charging"
         self._attr_unique_id = f"{self._config_entry_id}_stop_charging"
 
     async def async_press(self) -> None:
         """Stop charging session."""
         self.coordinator.last_command = LastCommand.STOP
-        await async_write_register(
-            self.client,
-            REG_START_STOP_SESSION,
-            VAL_STOP_SESSION,
-            lock=self.coordinator.modbus_lock,
-        )
+        await async_run_device_action(self.device.async_stop_session())
         await self.coordinator.async_request_refresh()

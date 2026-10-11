@@ -2,6 +2,26 @@
 
 Vse pomembne spremembe te integracije so naštete tukaj. Skladno z [Keep a Changelog](https://keepachangelog.com/sl/1.0.0/).
 
+## [0.4.0]
+
+### Release notes (EN)
+
+- **Requires Home Assistant 2026.9 or newer.** The integration now uses Home Assistant's shared Modbus connection (`modbus.async_get_unit`) instead of opening its own `pymodbus` client.
+- Charger communication moved into a Home Assistant-independent device library (`abb_terra_ac.api`) built on `modbus-connection`.
+- Added a **Modbus unit ID** field to setup and reconfigure (default `1`). Existing config entries are migrated automatically (entry version 3).
+- Removed the integration's own reconnect, retry and Modbus lock: the shared connection serializes requests and reopens itself after a dropped link.
+- The `pymodbus` requirement was removed from `manifest.json`; the `modbus` integration is now a dependency.
+- Diagnostics: the `client` section is now `device` and includes the unit ID.
+- Tests rewritten for the new Modbus layer; duplicated `tests/tests` copy removed.
+
+### Spremenjeno
+
+- Integracija zahteva **Home Assistant 2026.9 ali novejši** in uporablja skupno Modbus povezavo prek vgrajene integracije `modbus` (`async_get_unit`) namesto lastnega odjemalca `pymodbus`.
+- Komunikacija s polnilnico je v ločeni knjižnici brez odvisnosti od Home Assistanta (`abb_terra_ac.api`) na osnovi `modbus-connection`.
+- Nastavitev in ponovna nastavitev imata novo polje **Modbus unit ID** (privzeto `1`). Obstoječi vnosi se samodejno migrirajo.
+- Odstranjeni so lasten reconnect, ponovni poskus in Modbus zaklep; skupna povezava sama serializira zahteve in se po izpadu ponovno odpre.
+- V `manifest.json` ni več `pymodbus`; odvisnost je integracija `modbus`.
+
 ## [0.3.3]
 
 ### Release notes (EN)

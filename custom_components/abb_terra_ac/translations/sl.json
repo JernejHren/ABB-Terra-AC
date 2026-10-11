@@ -6,7 +6,8 @@
         "description": "Vnesite IP naslov in port vaše ABB Terra AC polnilnice",
         "data": {
           "host": "IP naslov",
-          "port": "Modbus TCP port"
+          "port": "Modbus TCP port",
+          "unit_id": "Modbus unit ID"
         }
       },
       "reconfigure": {
@@ -14,7 +15,8 @@
         "description": "Posodobite IP naslov in port vaše ABB Terra AC polnilnice",
         "data": {
           "host": "IP naslov",
-          "port": "Modbus TCP port"
+          "port": "Modbus TCP port",
+          "unit_id": "Modbus unit ID"
         }
       }
     },

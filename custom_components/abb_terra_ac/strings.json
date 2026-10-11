@@ -6,11 +6,13 @@
         "description": "Enter the IP address and port of your ABB Terra AC charger",
         "data": {
           "host": "IP address",
-          "port": "Modbus TCP port"
+          "port": "Modbus TCP port",
+          "unit_id": "Modbus unit ID"
         },
         "data_description": {
           "host": "Hostname or IPv4 address of the charger on your local network.",
-          "port": "TCP port for Modbus (typically 502 for ABB Terra AC)."
+          "port": "TCP port for Modbus (typically 502 for ABB Terra AC).",
+          "unit_id": "Modbus unit (slave) ID of the charger, usually 1."
         }
       },
       "reconfigure": {
@@ -18,11 +20,13 @@
         "description": "Update the IP address and port of your ABB Terra AC charger",
         "data": {
           "host": "IP address",
-          "port": "Modbus TCP port"
+          "port": "Modbus TCP port",
+          "unit_id": "Modbus unit ID"
         },
         "data_description": {
           "host": "Hostname or IPv4 address of the charger on your local network.",
-          "port": "TCP port for Modbus (typically 502 for ABB Terra AC)."
+          "port": "TCP port for Modbus (typically 502 for ABB Terra AC).",
+          "unit_id": "Modbus unit (slave) ID of the charger, usually 1."
         }
       }
     },

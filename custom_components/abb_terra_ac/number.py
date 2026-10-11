@@ -8,11 +8,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from pymodbus.client import AsyncModbusTcpClient
 
 from . import AbbTerraAcDataUpdateCoordinator, AbbTerraAcRuntimeData
+from .api import AbbTerraAcDevice
 from .entity import AbbTerraAcEntity
-from .modbus_write import async_write_register, async_write_registers
+from .errors import async_run_device_action
 
 PARALLEL_UPDATES = 0
 
@@ -25,12 +25,12 @@ async def async_setup_entry(
     """Set up number entities from a config entry."""
     runtime_data: AbbTerraAcRuntimeData = entry.runtime_data
     coordinator = runtime_data.coordinator
-    client = runtime_data.client
+    device = runtime_data.device
 
     numbers = [
-        AbbTerraAcChargingCurrentLimit(coordinator, entry, client),
-        AbbTerraAcFallbackLimit(coordinator, entry, client),
-        AbbTerraAcCommunicationTimeout(coordinator, entry, client),
+        AbbTerraAcChargingCurrentLimit(coordinator, entry, device),
+        AbbTerraAcFallbackLimit(coordinator, entry, device),
+        AbbTerraAcCommunicationTimeout(coordinator, entry, device),
     ]
     async_add_entities(numbers, True)
 
@@ -44,10 +44,10 @@ class AbbTerraAcBaseNumber(AbbTerraAcEntity, NumberEntity):
         self,
         coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
-        client: AsyncModbusTcpClient
+        device: AbbTerraAcDevice
     ) -> None:
         AbbTerraAcEntity.__init__(self, coordinator, entry.entry_id)
-        self.client = client
+        self.device = device
 
 
 class AbbTerraAcChargingCurrentLimit(AbbTerraAcBaseNumber):
@@ -59,9 +59,9 @@ class AbbTerraAcChargingCurrentLimit(AbbTerraAcBaseNumber):
         self,
         coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
-        client: AsyncModbusTcpClient
+        device: AbbTerraAcDevice
     ) -> None:
-        super().__init__(coordinator, entry, client)
+        super().__init__(coordinator, entry, device)
         self._attr_translation_key = "current_limit"
         self._attr_unique_id = f"{self._config_entry_id}_current_limit"
         self._attr_native_unit_of_measurement = "A"
@@ -83,15 +83,7 @@ class AbbTerraAcChargingCurrentLimit(AbbTerraAcBaseNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new charging current limit."""
-        value_to_send = int(value * 1000)
-        high_word = value_to_send >> 16
-        low_word = value_to_send & 0xFFFF
-        await async_write_registers(
-            self.client,
-            16640,
-            [high_word, low_word],
-            lock=self.coordinator.modbus_lock,
-        )
+        await async_run_device_action(self.device.async_set_current_limit(value))
         await self.coordinator.async_request_refresh()
 
 
@@ -104,9 +96,9 @@ class AbbTerraAcFallbackLimit(AbbTerraAcBaseNumber):
         self,
         coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
-        client: AsyncModbusTcpClient
+        device: AbbTerraAcDevice
     ) -> None:
-        super().__init__(coordinator, entry, client)
+        super().__init__(coordinator, entry, device)
         self._attr_translation_key = "fallback_limit"
         self._attr_unique_id = f"{self._config_entry_id}_fallback_limit"
         self._attr_native_unit_of_measurement = "A"
@@ -127,12 +119,7 @@ class AbbTerraAcFallbackLimit(AbbTerraAcBaseNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new fallback limit."""
-        await async_write_register(
-            self.client,
-            16649,
-            int(value),
-            lock=self.coordinator.modbus_lock,
-        )
+        await async_run_device_action(self.device.async_set_fallback_limit(int(value)))
         await self.coordinator.async_request_refresh()
 
 
@@ -143,9 +130,9 @@ class AbbTerraAcCommunicationTimeout(AbbTerraAcBaseNumber):
         self,
         coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
-        client: AsyncModbusTcpClient
+        device: AbbTerraAcDevice
     ) -> None:
-        super().__init__(coordinator, entry, client)
+        super().__init__(coordinator, entry, device)
         self._attr_translation_key = "communication_timeout"
         self._attr_unique_id = f"{self._config_entry_id}_communication_timeout"
         self._attr_native_unit_of_measurement = "s"
@@ -160,10 +147,7 @@ class AbbTerraAcCommunicationTimeout(AbbTerraAcBaseNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new communication timeout."""
-        await async_write_register(
-            self.client,
-            16646,
-            int(value),
-            lock=self.coordinator.modbus_lock,
+        await async_run_device_action(
+            self.device.async_set_communication_timeout(int(value))
         )
         await self.coordinator.async_request_refresh()

@@ -10,7 +10,8 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 
 from . import AbbTerraAcRuntimeData
-from .const import AbbTerraAcData, CONF_SCAN_INTERVAL
+from .api import AbbTerraAcData
+from .const import CONF_SCAN_INTERVAL, CONF_UNIT_ID, DEFAULT_UNIT_ID
 
 # Config entry data and client host are PII (network identity; treat as sensitive).
 _REDACT_CONFIG = {CONF_HOST}
@@ -23,7 +24,7 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry (host and serial redacted)."""
     runtime_data: AbbTerraAcRuntimeData = entry.runtime_data
     coordinator = runtime_data.coordinator
-    client = runtime_data.client
+    device = runtime_data.device
 
     coordinator_data: AbbTerraAcData = coordinator.data
 
@@ -41,10 +42,11 @@ async def async_get_config_entry_diagnostics(
                 CONF_SCAN_INTERVAL: entry.options.get(CONF_SCAN_INTERVAL),
             },
         },
-        "client": {
-            "connected": client.connected,
+        "device": {
+            "connected": device.connected,
             "host": "**REDACTED**",
             "port": entry.data[CONF_PORT],
+            "unit_id": entry.data.get(CONF_UNIT_ID, DEFAULT_UNIT_ID),
         },
         "coordinator": {
             "last_update_success": coordinator.last_update_success,

@@ -2,5 +2,7 @@
 # See: https://github.com/MatthewFlamm/pytest-homeassistant-custom-component
 pytest-homeassistant-custom-component
 pytest-asyncio>=0.23
-pymodbus>=3.9.2
+# Provided by Home Assistant's built-in modbus integration (async_get_unit).
+modbus-connection[tmodbus]
+pymodbus
 mypy>=1.11
