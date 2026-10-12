@@ -29,5 +29,8 @@ async def async_run_device_action(action: Awaitable[None]) -> None:
         await action
     except ModbusExceptionError as err:
         raise build_service_error("write_failed") from err
+    except ValueError:
+        # A rejected input value is a caller bug, not an unreachable charger.
+        raise
     except Exception as err:  # noqa: BLE001 - any other failure: charger unreachable
         raise build_service_error("charger_unavailable") from err

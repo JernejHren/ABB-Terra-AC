@@ -33,6 +33,9 @@ REG_FALLBACK_LIMIT = 16649  # 4109h
 VAL_START_SESSION = 0
 VAL_STOP_SESSION = 1
 
+# Largest value the 32-bit current-limit register (4100h) can hold.
+MAX_CURRENT_LIMIT_MA = 0xFFFFFFFF
+
 
 def decode_32bit_value(regs: list[int], resolution: float = 1) -> float:
     """Decode a 32-bit value from two registers (high word first)."""
@@ -98,9 +101,11 @@ def decode_status_block(
     if serial_number is None:
         serial_number = decode_serial_number(registers[0:4])
 
-    # Charging state: per testing, the actual state is in register 400Dh
-    # (index 13), encoded in the high byte. The documented 400Ch always returns
-    # 0. Bit 7 of the high byte = charging at reduced current.
+    # Charging state (manual section 5.6): a 32-bit value spanning 400Ch-400Dh
+    # whose byte 1 holds the state. Byte 1 is the high byte of the second
+    # register, 400Dh (index 13); 400Ch itself is spare and reads 0.
+    # Bit 7 = charging below the value commanded via 4100h (reduced current),
+    # bits 6..0 = state.
     high_byte = (registers[13] >> 8) & 0xFF
 
     return {
@@ -109,7 +114,7 @@ def decode_status_block(
         "user_settable_max_current": decode_32bit_value(registers[6:8], 0.001),
         "error_code": int(decode_32bit_value(registers[8:10])),
         "socket_lock_state": int(decode_32bit_value(registers[10:12])),
-        "charging_state": high_byte & 0x0F,
+        "charging_state": high_byte & 0x7F,
         "charging_at_reduced_current": bool(high_byte & 0x80),
         "charging_current_limit": decode_32bit_value(registers[14:16], 0.001),
         "charging_current_l1": decode_32bit_value(registers[16:18], 0.001),
@@ -176,8 +181,16 @@ class AbbTerraAcDevice:
         await self._unit.write_register(REG_CABLE_LOCK, 1 if locked else 0)
 
     async def async_set_current_limit(self, amps: float) -> None:
-        """Set the charging current limit (32-bit write to 4100h, in mA)."""
-        value = int(amps * 1000)
+        """Set the charging current limit (32-bit write to 4100h, in mA).
+
+        ``round`` avoids floating point truncation (``1.005 * 1000`` is
+        ``1004.9999...``). A negative or oversized value is rejected rather than
+        wrapped into the register.
+        """
+        value = round(amps * 1000)
+        if not 0 <= value <= MAX_CURRENT_LIMIT_MA:
+            msg = f"Current limit {amps} A is outside the 32-bit register range"
+            raise ValueError(msg)
         await self._unit.write_registers(
             REG_CURRENT_LIMIT, [value >> 16, value & 0xFFFF]
         )

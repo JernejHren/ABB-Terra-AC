@@ -205,7 +205,8 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         user_max = int(data["user_settable_max_current"])
 
         # --- Firmware bug fix: Fallback Limit ---
-        # Known firmware bug: fallback limit resets to 256 after unexpected reboot.
+        # Known firmware bug: fallback limit resets to an invalid value (the documented
+        # default is 0xFF) after unexpected reboot.
         # Restore to last known valid value, or user_settable_max_current as fallback.
         fallback_limit = data["fallback_limit"]
 

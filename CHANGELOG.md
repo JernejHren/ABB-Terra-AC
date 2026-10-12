@@ -13,6 +13,9 @@ Vse pomembne spremembe te integracije so naštete tukaj. Skladno z [Keep a Chang
 - The `pymodbus` requirement was removed from `manifest.json`; the `modbus` integration is now a dependency.
 - Diagnostics: the `client` section is now `device` and includes the unit ID.
 - Tests rewritten for the new Modbus layer; duplicated `tests/tests` copy removed.
+- Fixed the current limit being written 1 mA too low for some values (float truncation); out-of-range values are now rejected instead of wrapped.
+- Charging state is now masked with bits 6..0 as in the manual; clarified the register 400Dh comment.
+- Added direct tests of the device library against the examples in the ABB Modbus manual v1.11.
 
 ### Spremenjeno
 
