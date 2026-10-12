@@ -15,6 +15,7 @@ from custom_components.abb_terra_ac.const import (
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.data_entry_flow import FlowResultType
 
 from tests.const import mock_config_entry_kwargs
@@ -72,6 +73,20 @@ async def test_connection_errors(
 
     assert result["type"] is FlowResultType.FORM
     assert result["errors"]["base"] == expected_error
+
+
+async def test_connection_conflict_error(hass: HomeAssistant) -> None:
+    """A shared connection with different link settings gets its own form error."""
+    result = await _start_user_flow(hass)
+
+    with patch(_FLOW_UNIT, side_effect=HomeAssistantError("different link settings")):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"]["base"] == "connection_conflict"
 
 
 async def test_unexpected_error(hass: HomeAssistant) -> None:

@@ -34,7 +34,8 @@
       "cannot_connect": "Failed to connect to the charger. Check the IP address and port.",
       "timeout": "Connection to the charger timed out. Check your network connection.",
       "invalid_response": "The charger is not responding correctly. Check if Modbus TCP is enabled.",
-      "unknown": "Unexpected error during connection"
+      "unknown": "Unexpected error during connection",
+      "connection_conflict": "The charger is already in use by another integration with different connection settings. Use the same settings or remove the other configuration."
     },
     "abort": {
       "already_configured": "This charger is already configured",

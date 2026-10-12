@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow
+from homeassistant.exceptions import HomeAssistantError
 from modbus_connection import (
     ModbusConnectionError,
     ModbusError,
@@ -100,6 +101,10 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await AbbTerraAcDevice(unit).async_probe()
         except ModbusTimeoutError:
             raise
+        except HomeAssistantError as err:
+            # The same charger is already in use with different link settings.
+            msg = "connection_conflict"
+            raise ValueError(msg) from err
         except ModbusConnectionError as err:
             msg = "cannot_connect"
             raise ValueError(msg) from err
