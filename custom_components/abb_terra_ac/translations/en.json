@@ -157,8 +157,7 @@
         "name": "Start Charging"
       },
       "stop_charging": {
-        "name": "Stop Charging",
-        "description": "Ends the charging session. Starting again may require a new start command."
+        "name": "Stop Charging"
       }
     },
     "binary_sensor": {
@@ -168,8 +167,7 @@
     },
     "number": {
       "current_limit": {
-        "name": "Charging Current Limit",
-        "description": "Set to 0 A to pause charging without ending the session."
+        "name": "Charging Current Limit"
       },
       "fallback_limit": {
         "name": "Fallback Limit"

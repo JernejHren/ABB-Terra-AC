@@ -96,8 +96,7 @@
         "name": "Začni polnjenje"
       },
       "stop_charging": {
-        "name": "Ustavi polnjenje",
-        "description": "Konča sejo polnjenja. Ponovni zagon lahko zahteva nov ukaz za začetek."
+        "name": "Ustavi polnjenje"
       }
     },
     "binary_sensor": {
@@ -107,8 +106,7 @@
     },
     "number": {
       "current_limit": {
-        "name": "Omejitev polnilnega toka",
-        "description": "Nastavite na 0 A, da začasno ustavite polnjenje brez zaključka seje."
+        "name": "Omejitev polnilnega toka"
       },
       "fallback_limit": {
         "name": "Rezervna omejitev"
