@@ -127,6 +127,10 @@
     "firmware_limit_restore_failed": {
       "title": "ABB Terra AC polnilnica je vrnila neveljaven parameter {limit_name}",
       "description": "Polnilnica je poročala o parametru {limit_name} v višini {current_value} A, kar presega nastavljeno največjo vrednost {max_value} A. Home Assistant je poskusil samodejno obnoviti veljavno vrednost, vendar polnilnica spremembe ni sprejela. Preverite nastavitve polnilnice, po potrebi ročno nastavite veljavno omejitev in nato znova naložite ali ponovno nastavite integracijo, ko bo naprava stabilna."
+    },
+    "scan_interval_exceeds_timeout": {
+      "title": "Interval branja ni krajši od časovne omejitve komunikacije polnilnice",
+      "description": "Home Assistant bere polnilnico vsakih {scan_interval} s, časovna omejitev komunikacije polnilnice pa je {timeout} s. Polnilnica lahko šteje Modbus komunikacijo za izgubljeno in sporoči napako 0x4000 (modbus_communication_lost). Skrajšajte interval branja v nastavitvah integracije ali povečajte entiteto za časovno omejitev komunikacije."
     }
   }
 }

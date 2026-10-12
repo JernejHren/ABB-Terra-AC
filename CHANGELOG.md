@@ -15,6 +15,7 @@ Vse pomembne spremembe te integracije so naštete tukaj. Skladno z [Keep a Chang
 - Tests rewritten for the new Modbus layer; duplicated `tests/tests` copy removed.
 - Fixed the current limit being written 1 mA too low for some values (float truncation); out-of-range values are now rejected instead of wrapped.
 - Charging state is now masked with bits 6..0 as in the manual; clarified the register 400Dh comment.
+- New repair warning when the poll interval is not shorter than the charger's communication timeout (EN/SL). README corrected: poll interval is configurable, and the charging state byte layout matches the ABB document.
 - Added direct tests of the device library against the examples in the ABB Modbus manual v1.11.
 - Error code sensor: several simultaneous errors are now decoded (lowest bit is the state; `active_errors`, `raw_code` and `unknown_bits` attributes added). README has a table of all error codes from the Terra AC installation manual.
 

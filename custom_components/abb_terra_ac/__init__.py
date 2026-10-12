@@ -36,6 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _ISSUE_ID_INVALID_FALLBACK_LIMIT = "invalid_fallback_limit"
 _ISSUE_ID_INVALID_CURRENT_LIMIT = "invalid_current_limit"
+_ISSUE_ID_SCAN_INTERVAL = "scan_interval_exceeds_timeout"
 
 
 @dataclass
@@ -101,6 +102,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok:
         entry.runtime_data = None
+        ir.async_delete_issue(hass, DOMAIN, f"{_ISSUE_ID_SCAN_INTERVAL}_{entry.entry_id}")
 
     return unload_ok
 
@@ -122,6 +124,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         self.device = device
         self.entry_id = entry.entry_id
         scan_s = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
+        self._scan_interval_s = scan_s
         self._is_available = True
         self.last_command: str = LastCommand.NONE
 
@@ -169,6 +172,33 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             },
         )
 
+    def _async_check_scan_interval(self, data: AbbTerraAcData) -> None:
+        """Warn when polling is not faster than the charger's communication timeout.
+
+        The charger counts Modbus communication as lost when nothing is read
+        within its communication timeout (register 4106h, read back in 4020h).
+        Our poll is that read, so a poll interval at or above the timeout can
+        make the charger report ``modbus_communication_lost``.
+        """
+        timeout = int(data["communication_timeout"])
+        issue_id = f"{_ISSUE_ID_SCAN_INTERVAL}_{self.entry_id}"
+        if timeout > 0 and self._scan_interval_s >= timeout:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                is_persistent=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="scan_interval_exceeds_timeout",
+                translation_placeholders={
+                    "scan_interval": str(self._scan_interval_s),
+                    "timeout": str(timeout),
+                },
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
     def _async_delete_limit_issue(self, issue_id: str) -> None:
         """Delete a previously created invalid charger limit issue."""
         ir.async_delete_issue(self.hass, DOMAIN, f"{issue_id}_{self.entry_id}")
@@ -193,6 +223,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             raise UpdateFailed(err) from err
 
         await self._async_restore_invalid_limits(data)
+        self._async_check_scan_interval(data)
 
         if not self._is_available:
             _LOGGER.info("ABB Terra AC charger is available again")

@@ -188,6 +188,10 @@
     "firmware_limit_restore_failed": {
       "title": "ABB Terra AC charger returned an invalid {limit_name}",
       "description": "The charger reported a {limit_name} of {current_value} A, which is above the configured maximum of {max_value} A. Home Assistant tried to restore a valid value automatically, but the charger did not accept the change. Verify the charger configuration, set a valid limit on the charger if needed, and reload or reconfigure the integration after the device is stable again."
+    },
+    "scan_interval_exceeds_timeout": {
+      "title": "Polling interval is not shorter than the charger's communication timeout",
+      "description": "Home Assistant reads the charger every {scan_interval} s, but the charger's communication timeout is {timeout} s. The charger may treat Modbus communication as lost and report error 0x4000 (modbus_communication_lost). Lower the polling interval in the integration options, or increase the communication timeout number entity."
     }
   }
 }

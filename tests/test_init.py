@@ -252,3 +252,65 @@ async def test_setup_retries_when_charger_is_offline(hass: HomeAssistant) -> Non
         assert not await hass.config_entries.async_setup(entry.entry_id)
 
     assert entry.state.value == "setup_retry"
+
+
+async def _setup_with_scan_interval(
+    hass: HomeAssistant, scan_interval: int, communication_timeout: int
+) -> MockConfigEntry:
+    unit = create_mock_modbus_unit(
+        registers=make_holding_registers_37(communication_timeout=communication_timeout)
+    )
+    kwargs = mock_config_entry_kwargs()
+    kwargs["options"] = {CONF_SCAN_INTERVAL: scan_interval}
+    entry = MockConfigEntry(**kwargs)
+    entry.add_to_hass(hass)
+    with patch(_INIT_UNIT, return_value=unit):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+@pytest.mark.parametrize(("scan_interval", "expect_issue"), [(30, False), (59, False), (60, True), (120, True)])
+async def test_scan_interval_vs_communication_timeout_issue(
+    hass: HomeAssistant, scan_interval: int, expect_issue: bool
+) -> None:
+    """A poll interval at or above the charger timeout (60 s) raises a repair issue."""
+    entry = await _setup_with_scan_interval(hass, scan_interval, 60)
+
+    issue = ir.async_get(hass).async_get_issue(
+        DOMAIN, f"scan_interval_exceeds_timeout_{entry.entry_id}"
+    )
+    if expect_issue:
+        assert issue is not None
+        assert issue.translation_key == "scan_interval_exceeds_timeout"
+        assert issue.translation_placeholders == {
+            "scan_interval": str(scan_interval),
+            "timeout": "60",
+        }
+    else:
+        assert issue is None
+
+
+async def test_scan_interval_issue_cleared_when_timeout_raised_and_on_unload(
+    hass: HomeAssistant,
+) -> None:
+    """The issue follows the charger's timeout and is removed when the entry unloads."""
+    entry = await _setup_with_scan_interval(hass, 120, 60)
+    issue_id = f"scan_interval_exceeds_timeout_{entry.entry_id}"
+    registry = ir.async_get(hass)
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    coordinator = entry.runtime_data.coordinator
+    unit_registers = make_holding_registers_37(communication_timeout=300)
+    coordinator.device._unit.read_holding_registers.return_value = unit_registers
+    await coordinator._async_update_data()
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+    # Raise it again, then confirm unload removes it.
+    coordinator.device._unit.read_holding_registers.return_value = (
+        make_holding_registers_37(communication_timeout=60)
+    )
+    await coordinator._async_update_data()
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert registry.async_get_issue(DOMAIN, issue_id) is None

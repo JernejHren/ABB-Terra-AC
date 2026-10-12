@@ -174,16 +174,18 @@ The integration uses Home Assistant's `DataUpdateCoordinator` with local polling
 
 Current update behavior:
 
-- Poll interval: every 15 seconds
+- Poll interval: every 15 seconds by default; configurable between 5 and 300 seconds in the integration options
 - Transport: Modbus TCP over the local network, through a connection shared via Home Assistant's `modbus` integration
 - Read strategy: one holding-register block read starting at address `16384`
 - Update scope: one charger per config entry
+
+The charger counts Modbus communication as lost when nothing is read within its communication timeout (register `4106h`, 60 seconds by default). Keep the poll interval shorter than that timeout. If it is not, Home Assistant shows a repair warning.
 
 If the charger becomes unreachable, entities become unavailable. When communication recovers, entities update automatically on the next successful poll.
 
 Known implementation details:
 
-- Charging state is derived from register `400Dh` high byte because the documented `400Ch` does not return a usable value on tested chargers.
+- Charging state is read from the high byte of register `400Dh`. The ABB Modbus document describes the charging state as a 32-bit value in `400Ch`-`400Dh` whose byte 1 holds the state (bits 6..0) and the reduced-current flag (bit 7); byte 1 is the high byte of `400Dh`.
 - The integration contains a one-time recovery workaround for known charger firmware issues where fallback limit or charging current limit may reset to an invalid value after an unexpected reboot.
 
 ## Removal
