@@ -78,6 +78,25 @@ The integration does not currently support:
 - Home Assistant **2026.9 or newer**. The integration talks to the charger through Home Assistant's built-in `modbus` integration, which owns and shares the Modbus TCP connection (`modbus.async_get_unit`).
 - No `modbus:` YAML configuration is needed. The built-in Modbus integration is loaded automatically as a dependency.
 
+## Charger setup (Modbus TCP)
+
+The charger answers Modbus TCP only after it has been switched to a local controller mode. Do this once, before adding the integration:
+
+1. Install the **TerraConfig** app (version 1.6 or newer) and connect to the charger.
+2. Open **Settings -> Load Balance**.
+3. Scroll to **Modbus**, enable it, and choose the **local controller** option with **Modbus TCP/IP**.
+4. Enter the communication settings (the IP address you will use in Home Assistant), save, and let the charger reboot.
+5. Connect the charger to your network with an Ethernet cable on its LAN (RJ45) port.
+
+Things to know:
+
+- Modbus TCP runs over the charger's **LAN port**. Charger Wi-Fi is not used for Modbus.
+- While Modbus TCP is active, the LAN port cannot also carry OCPP. A reported workaround is OCPP over Wi-Fi with Modbus over the LAN port.
+- A community forum user reported that Modbus TCP did not work on a charger variant without an LCD screen. This has not been confirmed.
+- The charger accepts **one** Modbus TCP session at a time. The ABB phone app can be used alongside the integration.
+
+Menu names may differ between TerraConfig versions. This section is based on the community forum thread for this integration and the ABB Modbus communication document v1.11.
+
 ## Installation
 
 ### HACS installation
@@ -224,7 +243,7 @@ Example dashboard cards:
 ## Troubleshooting
 
 - Verify that the charger is reachable on the network from the Home Assistant host.
-- Confirm that Modbus TCP is enabled and reachable on port `502` or the configured port.
+- Confirm that Modbus TCP is enabled on the charger (see [Charger setup](#charger-setup-modbus-tcp)) and reachable on port `502` or the configured port.
 - If the charger refuses or drops Modbus connections, make sure no other Modbus client outside Home Assistant is already connected.
 - If you are trying to use charger Wi-Fi directly, review the charger communication setup first. Modbus TCP is documented and tested here as an Ethernet-side connection.
 - If you use a Wi-Fi bridge or TCP/RS485 converter, treat that setup as community-supported rather than officially validated by this project.
