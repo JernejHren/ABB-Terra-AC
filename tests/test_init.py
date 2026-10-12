@@ -314,3 +314,45 @@ async def test_scan_interval_issue_cleared_when_timeout_raised_and_on_unload(
     assert registry.async_get_issue(DOMAIN, issue_id) is not None
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_diagnostics_include_raw_status_block_without_serial(
+    hass: HomeAssistant,
+) -> None:
+    """The raw block is exported as hex, with the serial number registers left out."""
+    regs = make_holding_registers_37(charging_state_nibble=4, reduced_current_bit=True)
+    regs[0:4] = [0x5422, 0x0400, 0x1922, 0x0001]
+    unit = create_mock_modbus_unit(connect=True, read_error=False, registers=regs)
+    entry = await _async_setup(hass, unit)
+
+    result = await diagnostics.async_get_config_entry_diagnostics(hass, entry)
+    raw = result["coordinator"]["raw_status_block"]
+
+    assert raw["serial_registers"] == "redacted"
+    # 4000h + 4 + index: 400Dh is index 13 - 4 = 9 in the exported list.
+    assert raw["registers_0x4004_onward"][9] == f"{regs[13]:04X}"
+    assert len(raw["registers_0x4004_onward"]) == 33
+    assert "5422" not in str(result)
+
+
+async def test_debug_log_of_status_registers_only_on_change(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The raw register line is logged when the state or limits change, not each poll."""
+    first = make_holding_registers_37(charging_state_nibble=4)
+    second = make_holding_registers_37(charging_state_nibble=5)
+    unit = create_mock_modbus_unit(connect=True, read_error=False, registers=first)
+    entry = await _async_setup(hass, unit)
+    coordinator = entry.runtime_data.coordinator
+
+    caplog.set_level(logging.DEBUG, logger="custom_components.abb_terra_ac")
+    caplog.clear()
+    unit.read_holding_registers.return_value = list(first)
+    await coordinator._async_update_data()
+    assert not [r for r in caplog.records if "Status registers" in r.getMessage()]
+
+    unit.read_holding_registers.return_value = list(second)
+    await coordinator._async_update_data()
+    lines = [r.getMessage() for r in caplog.records if "Status registers" in r.getMessage()]
+    assert len(lines) == 1
+    assert "400C-400D=0000 0500" in lines[0]

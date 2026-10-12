@@ -138,6 +138,12 @@ class AbbTerraAcDevice:
         """Wrap a unit. The caller owns the connection behind it."""
         self._unit = unit
         self._serial_number: str | None = None
+        self._last_registers: list[int] | None = None
+
+    @property
+    def last_registers(self) -> list[int] | None:
+        """Raw 37-register status block from the latest successful read."""
+        return self._last_registers
 
     @property
     def connected(self) -> bool:
@@ -164,6 +170,7 @@ class AbbTerraAcDevice:
         registers = await self._unit.read_holding_registers(
             REG_STATUS_BLOCK, STATUS_BLOCK_LENGTH
         )
+        self._last_registers = list(registers)
         data = decode_status_block(registers, self._serial_number)
         self._serial_number = data["serial_number"]
         return data

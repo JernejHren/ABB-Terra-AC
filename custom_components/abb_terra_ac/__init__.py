@@ -127,6 +127,8 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         self._scan_interval_s = scan_s
         self._is_available = True
         self.last_command: str = LastCommand.NONE
+        self._state_5_polls = 0
+        self._last_logged_raw: tuple[int, ...] | None = None
 
         # Firmware bug auto-fix: fallback limit
         self._last_valid_fallback_limit: int | None = None
@@ -229,7 +231,37 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             _LOGGER.info("ABB Terra AC charger is available again")
         self._is_available = True
         self._sync_last_command_after_poll(data)
+        self._state_5_polls = (
+            self._state_5_polls + 1 if data["charging_state"] == 5 else 0
+        )
+        self._async_log_raw_changes()
         return data
+
+    def _async_log_raw_changes(self) -> None:
+        """Debug-log the registers behind the session state when they change.
+
+        400Ch-400Dh (charging state, bit 7), 400Eh-400Fh (limit in use) and
+        4022h-4023h (limit set via Modbus) are logged as hex together with the
+        phase currents, so a log shows how they move relative to each other.
+        """
+        registers = self.device.last_registers
+        if registers is None or not _LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        key = (*registers[12:16], *registers[34:36])
+        if key == self._last_logged_raw:
+            return
+        self._last_logged_raw = key
+        _LOGGER.debug(
+            "Status registers: 400C-400D=%04X %04X, 400E-400F=%04X %04X, "
+            "4022-4023=%04X %04X, I(mA) L1=%d L2=%d L3=%d, P=%d W, "
+            "last_command=%s",
+            *key,
+            (registers[16] << 16) | registers[17],
+            (registers[18] << 16) | registers[19],
+            (registers[20] << 16) | registers[21],
+            (registers[28] << 16) | registers[29],
+            self.last_command,
+        )
 
     async def _async_restore_invalid_limits(self, data: AbbTerraAcData) -> None:
         """Work around the firmware resetting limits to invalid values after a reboot."""
@@ -334,6 +366,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             charging_current_l1=float(self.data["charging_current_l1"]),
             charging_current_l2=float(self.data["charging_current_l2"]),
             charging_current_l3=float(self.data["charging_current_l3"]),
+            state_5_polls=self._state_5_polls,
         )
 
     def _async_log_unavailable(self, reason: str) -> None:

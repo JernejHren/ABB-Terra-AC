@@ -97,3 +97,69 @@ def test_unknown_raw_state() -> None:
         )
         == SessionState.UNKNOWN
     )
+
+
+_NO_CURRENT = dict(
+    charging_current_l1=0.0, charging_current_l2=0.0, charging_current_l3=0.0
+)
+
+
+def test_state_5_with_limit_below_6a_is_paused_by_current() -> None:
+    """Real log 11.10 13:51:46: stop left the limit at 0 A, state 5 (paused).
+
+    Anything below 6 A pauses the session (IEC 61851-1), not only 0 A.
+    """
+    for limit in (0.0, 3.0, 5.9):
+        assert (
+            derive_session_state(
+                charging_state_raw=5,
+                current_limit_modbus=limit,
+                last_command="none",
+                **_NO_CURRENT,
+            )
+            == SessionState.PAUSED_BY_CURRENT
+        )
+
+
+def test_state_5_after_stop_command_is_paused_by_command() -> None:
+    """Real log 11.10 09:28:32: the charger zeroed the limit after stop."""
+    assert (
+        derive_session_state(
+            charging_state_raw=5,
+            current_limit_modbus=0.0,
+            last_command="stop",
+            **_NO_CURRENT,
+        )
+        == SessionState.PAUSED_BY_COMMAND
+    )
+
+
+def test_state_5_with_6a_limit_is_a_start_transition() -> None:
+    """Real log 11.10 09:18:06: state 5 with 6 A commanded, C2 followed 10 s later.
+
+    That is not a pause by current; it must not be reported as one.
+    """
+    assert (
+        derive_session_state(
+            charging_state_raw=5,
+            current_limit_modbus=6.0,
+            last_command="none",
+            state_5_polls=1,
+            **_NO_CURRENT,
+        )
+        == SessionState.ACTIVE
+    )
+
+
+def test_state_5_transition_does_not_last() -> None:
+    """After a few polls in state 5 with a sufficient limit the state is unknown."""
+    assert (
+        derive_session_state(
+            charging_state_raw=5,
+            current_limit_modbus=6.0,
+            last_command="none",
+            state_5_polls=3,
+            **_NO_CURRENT,
+        )
+        == SessionState.UNKNOWN
+    )

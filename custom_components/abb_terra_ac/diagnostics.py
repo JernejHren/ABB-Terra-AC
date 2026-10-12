@@ -33,6 +33,18 @@ async def async_get_config_entry_diagnostics(
     if CONF_HOST in entry.data:
         entry_data[CONF_HOST] = "**REDACTED**"
 
+    raw_registers = device.last_registers
+    raw_status_block = (
+        # Registers 0-3 are the serial number: leave them out.
+        {
+            "start_address": "0x4000",
+            "serial_registers": "redacted",
+            "registers_0x4004_onward": [f"{reg:04X}" for reg in raw_registers[4:]],
+        }
+        if raw_registers
+        else None
+    )
+
     return {
         "entry": {
             "entry_id": entry.entry_id,
@@ -59,5 +71,6 @@ async def async_get_config_entry_diagnostics(
             "last_valid_current_limit": coordinator._last_valid_current_limit,
             "current_limit_fix_attempted": coordinator._current_limit_fix_attempted,
             "data": async_redact_data(dict(coordinator_data), _REDACT_RUNTIME),
+            "raw_status_block": raw_status_block,
         },
     }
