@@ -204,3 +204,51 @@ async def test_set_current_limit_rejects_out_of_range(amps: float) -> None:
     with pytest.raises(ValueError, match="outside the 32-bit register range"):
         await device.async_set_current_limit(amps)
     unit.write_registers.assert_not_awaited()
+
+
+# A real status block (37 registers from 4000h) captured from a charger with a
+# cable connected and locked, no vehicle, and 0 A commanded over Modbus. The
+# serial number words were replaced with a neutral value.
+_REAL_IDLE_SNAPSHOT = [
+    0x5422, 0x0400, 0x1922, 0x0001,  # serial (anonymised)
+    0x0108, 0x3700,  # firmware
+    0x0000, 0x4E20,  # user settable max current: 20000 mA
+    0x0000, 0x0000,  # error code
+    0x0000, 0x0011,  # socket lock state
+    0x0000, 0x8000,  # charging state: bit 7 set, state 0
+    0x0000, 0x0000,  # charging current limit
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,  # currents L1..L3
+    0x0000, 0x0948, 0x0000, 0x092C, 0x0000, 0x0947,  # voltages L1..L3 (0.1 V)
+    0x0000, 0x0000,  # active power
+    0x0000, 0x0000,  # energy delivered
+    0x003C,  # communication timeout: 60 s
+    0x0000,
+    0x0000, 0x0000,  # current limit set by Modbus
+    0x0014,  # fallback limit: 20 A
+]
+
+
+def test_decode_real_idle_snapshot_with_reduced_flag_in_idle_state() -> None:
+    """Bit 7 can be set in state A (idle) while 0 A is commanded.
+
+    So the reduced-current flag alone does not mean "session active but not
+    charging"; it has to be combined with the state and the limits.
+    """
+    assert len(_REAL_IDLE_SNAPSHOT) == STATUS_BLOCK_LENGTH
+    data = decode_status_block(_REAL_IDLE_SNAPSHOT)
+
+    assert data["serial_number"] == "TACW22-4-1922-T0001"
+    assert data["firmware_version"] == "v1.8.37"
+    assert data["user_settable_max_current"] == pytest.approx(20.0)
+    assert data["error_code"] == 0
+    assert data["socket_lock_state"] == 17  # cable connected, locked
+    assert data["charging_state"] == 0  # state A, idle
+    assert data["charging_at_reduced_current"] is True  # bit 7
+    assert data["charging_current_limit"] == 0
+    assert data["charging_current_limit_modbus"] == 0
+    assert data["voltage_l1"] == pytest.approx(237.6)
+    assert data["voltage_l2"] == pytest.approx(234.8)
+    assert data["voltage_l3"] == pytest.approx(237.5)
+    assert data["active_power"] == 0
+    assert data["communication_timeout"] == 60
+    assert data["fallback_limit"] == 20
