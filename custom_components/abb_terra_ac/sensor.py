@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorEntity,
@@ -27,6 +28,7 @@ from .const import (
     LAST_COMMAND_OPTIONS,
     SESSION_STATE_OPTIONS,
     SOCKET_LOCK_STATES,
+    decode_error_bits,
 )
 from .entity import AbbTerraAcEntity
 from .session_state import SESSION_STATE_ICONS, vehicle_connected_from_socket_lock
@@ -220,10 +222,33 @@ class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
 
     @property
     def native_value(self) -> str:
+        """Return the lowest documented error bit that is set.
+
+        An exact match is returned as before. If several error bits are set at
+        once, the lowest one is the state and all of them are listed in the
+        ``active_errors`` attribute. A value with no documented bit is
+        ``unknown``.
+        """
         error_code = self.coordinator.data.get("error_code")
         if error_code is None:
             return "unknown"
-        return ERROR_CODES.get(int(error_code), "unknown")
+        keys, _ = decode_error_bits(int(error_code))
+        return keys[0] if keys else "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the raw register value and every error bit that is set."""
+        error_code = self.coordinator.data.get("error_code")
+        if error_code is None:
+            return None
+        keys, unknown_mask = decode_error_bits(int(error_code))
+        attributes: dict[str, Any] = {
+            "raw_code": f"0x{int(error_code) & 0xFFFFFFFF:04X}",
+            "active_errors": keys,
+        }
+        if unknown_mask:
+            attributes["unknown_bits"] = f"0x{unknown_mask:04X}"
+        return attributes
 
 
 class AbbTerraAcSocketLockStateSensor(AbbTerraAcBaseSensor):

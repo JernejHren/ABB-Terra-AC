@@ -232,7 +232,29 @@ Example dashboard cards:
 - If entities show as unavailable, check charger connectivity and whether the charger still responds to Modbus requests.
 - If the charger IP address or Modbus port changed, use the integration reconfiguration flow in Home Assistant.
 - If current-limit values look wrong after a charger reboot, review the charger state and Home Assistant logs to see whether the firmware recovery workaround was applied.
+- If the error code sensor shows an error, see [Charger error codes](#charger-error-codes).
 - If serial number or firmware version sensors do not appear, enable them manually in the entity registry because they are disabled by default.
+
+## Charger error codes
+
+The **Error code** sensor (a diagnostic entity) shows the error reported by the charger in register `4008h`. The codes and their causes are taken from the Terra AC installation manual (troubleshooting table, IEC portfolio). If the charger reports several errors at once, the sensor state is the lowest error bit and the `active_errors` attribute lists all of them; `raw_code` holds the register value in hex, and `unknown_bits` appears if a bit without a documented meaning is set.
+
+| Code | Sensor state | Meaning | What to check |
+| --- | --- | --- | --- |
+| `0x0002` | `residual_current_detected` | Residual current (30 mA AC or 6 mA DC) in the charge circuit | De-energize the charger and contact the manufacturer's representative or a qualified electrician |
+| `0x0004` | `pe_missing_or_swap_neutral_phase` | Protective earth missing, or neutral and phase swapped | Check the PE conductor and the phase/neutral wiring |
+| `0x0008` | `over_voltage` | Input voltage too high | Check that the grid voltage is within specification |
+| `0x0010` | `under_voltage` | Input voltage too low | Check that the grid voltage is within specification |
+| `0x0020` | `over_current` | Overload on the vehicle side | Check the charge cable connection |
+| `0x0040` | `severe_over_current` | Severe overload on the vehicle side | Check the charge cable connection |
+| `0x0080` | `over_temperature` | Internal temperature too high (the charger reduces its output current by itself) | Check the ambient temperature and grid voltage; do not use the charger if the problem persists |
+| `0x0400` | `power_relay_fault` | Relay contact in the wrong state or damaged | Contact the manufacturer's representative or a qualified electrician |
+| `0x0800` | `internal_communication_failure` | The charger's circuit boards cannot communicate | Contact the manufacturer's representative or a qualified electrician |
+| `0x1000` | `e_lock_failure` | The charge connector could not be locked or unlocked | Check the charge cable connection |
+| `0x2000` | `missing_phase` | One or two phases are missing | Check the electrical connections |
+| `0x4000` | `modbus_communication_lost` | The charger lost Modbus communication | See below |
+
+For `modbus_communication_lost`, the manual's checklist (wiring, polarity, baud rate, parity) describes the RS485 link to a smart meter. For Modbus TCP, note that the charger treats the link as lost when nothing is read within the communication timeout (register `4106h`, default 60 s). The Modbus manual states that with a fallback limit configured (register `4109h`) the charger does not go into error mode when communication disappears.
 
 ## Project links
 

@@ -67,3 +67,24 @@ ERROR_CODES: Final[dict[int, str]] = {
     8192: "missing_phase",
     16384: "modbus_communication_lost",
 }
+
+
+def decode_error_bits(code: int) -> tuple[list[str], int]:
+    """Split an error register value into known error keys and unknown bits.
+
+    The manual lists every error as a single bit (0x0002, 0x0004, ... 0x4000),
+    so several faults can in principle be reported at once (e.g. 0x0006).
+    Returns ``(keys, unknown_mask)``: the keys of all known bits set, lowest
+    bit first, and a mask of the set bits that have no documented meaning.
+    ``code == 0`` (no error) returns ``(["no_error"], 0)``.
+    """
+    code = int(code) & 0xFFFFFFFF
+    if code == 0:
+        return [ERROR_CODES[0]], 0
+    keys: list[str] = []
+    known_mask = 0
+    for value, key in ERROR_CODES.items():
+        if value and code & value == value:
+            keys.append(key)
+            known_mask |= value
+    return keys, code & ~known_mask
