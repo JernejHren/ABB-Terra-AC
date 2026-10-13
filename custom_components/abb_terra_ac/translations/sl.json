@@ -8,6 +8,11 @@
           "host": "IP naslov",
           "port": "Modbus TCP port",
           "unit_id": "Modbus unit ID"
+        },
+        "data_description": {
+          "host": "Ime gostitelja ali IPv4 naslov polnilnice v vašem lokalnem omrežju.",
+          "port": "TCP vrata za Modbus (običajno 502 za ABB Terra AC).",
+          "unit_id": "Modbus unit (slave) ID polnilnice, običajno 1."
         }
       },
       "reconfigure": {
@@ -17,6 +22,11 @@
           "host": "IP naslov",
           "port": "Modbus TCP port",
           "unit_id": "Modbus unit ID"
+        },
+        "data_description": {
+          "host": "Ime gostitelja ali IPv4 naslov polnilnice v vašem lokalnem omrežju.",
+          "port": "TCP vrata za Modbus (običajno 502 za ABB Terra AC).",
+          "unit_id": "Modbus unit (slave) ID polnilnice, običajno 1."
         }
       }
     },
@@ -41,10 +51,23 @@
         "name": "Stanje polnjenja (surovo)"
       },
       "session_state": {
-        "name": "Stanje seje"
+        "name": "Stanje seje",
+        "state": {
+          "idle": "Mirovanje",
+          "active": "Aktivna",
+          "completed": "Končana",
+          "paused_by_current": "Začasno ustavljena zaradi omejitve toka",
+          "paused_by_command": "Začasno ustavljena z ukazom stop",
+          "unknown": "Neznano"
+        }
       },
       "last_command": {
-        "name": "Zadnji ukaz"
+        "name": "Zadnji ukaz",
+        "state": {
+          "none": "Brez",
+          "start": "Začni",
+          "stop": "Ustavi"
+        }
       },
       "serial_number": {
         "name": "Serijska številka"
@@ -53,10 +76,34 @@
         "name": "Različica vdelane programske opreme"
       },
       "error_code": {
-        "name": "Koda napake"
+        "name": "Koda napake",
+        "state": {
+          "no_error": "Brez napake",
+          "residual_current_detected": "Zaznan diferenčni tok",
+          "pe_missing_or_swap_neutral_phase": "Manjka PE ali zamenjan nevtralni vodnik/faza",
+          "over_voltage": "Prenapetost",
+          "under_voltage": "Podnapetost",
+          "over_current": "Prevelik tok",
+          "severe_over_current": "Zelo prevelik tok",
+          "over_temperature": "Previsoka temperatura",
+          "power_relay_fault": "Napaka močnostnega releja",
+          "internal_communication_failure": "Napaka notranje komunikacije",
+          "e_lock_failure": "Napaka elektronske ključavnice",
+          "missing_phase": "Manjkajoča faza",
+          "modbus_communication_lost": "Izguba Modbus komunikacije",
+          "unknown": "Neznano"
+        }
       },
       "socket_lock_state": {
-        "name": "Stanje zaklepa vtičnice"
+        "name": "Stanje zaklepa vtičnice",
+        "state": {
+          "no_cable_plugged": "Kabel ni priključen",
+          "cable_connected_unlocked": "Kabel priključen, odklenjen",
+          "cable_connected_locked": "Kabel priključen, zaklenjen",
+          "cable_ev_connected_unlocked": "Kabel in vozilo priključena, odklenjeno",
+          "cable_ev_connected_locked": "Kabel in vozilo priključena, zaklenjeno",
+          "unknown": "Neznano"
+        }
       },
       "active_power": {
         "name": "Aktivna moč"
@@ -84,6 +131,9 @@
       },
       "actual_current_limit": {
         "name": "Dejanska omejitev toka"
+      },
+      "user_settable_max_current": {
+        "name": "Najvišji nastavljivi tok"
       }
     },
     "switch": {
@@ -102,6 +152,9 @@
     "binary_sensor": {
       "is_charging": {
         "name": "Polni se"
+      },
+      "charging_at_reduced_current": {
+        "name": "Polnjenje z zmanjšanim tokom"
       }
     },
     "number": {
@@ -110,6 +163,9 @@
       },
       "fallback_limit": {
         "name": "Rezervna omejitev"
+      },
+      "communication_timeout": {
+        "name": "Časovna omejitev komunikacije"
       }
     }
   },
@@ -129,6 +185,20 @@
     "scan_interval_exceeds_timeout": {
       "title": "Interval branja ni krajši od časovne omejitve komunikacije polnilnice",
       "description": "Home Assistant bere polnilnico vsakih {scan_interval} s, časovna omejitev komunikacije polnilnice pa je {timeout} s. Polnilnica lahko šteje Modbus komunikacijo za izgubljeno in sporoči napako 0x4000 (modbus_communication_lost). Skrajšajte interval branja v nastavitvah integracije ali povečajte entiteto za časovno omejitev komunikacije."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Možnosti ABB Terra AC",
+        "description": "Nastavitve med delovanjem (identiteta in povezava se spreminjata prek ponovne nastavitve).",
+        "data": {
+          "scan_interval": "Interval osveževanja"
+        },
+        "data_description": {
+          "scan_interval": "Kako pogosto Home Assistant bere registre polnilnice, v sekundah (5–300)."
+        }
+      }
     }
   }
 }

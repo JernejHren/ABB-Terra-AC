@@ -24,6 +24,12 @@
       },
       "actual_current_limit": {
         "default": "mdi:current-ac"
+      },
+      "charging_state": {
+        "default": "mdi:ev-plug-type2"
+      },
+      "user_settable_max_current": {
+        "default": "mdi:speedometer"
       }
     },
     "switch": {
@@ -42,6 +48,9 @@
     "binary_sensor": {
       "is_charging": {
         "default": "mdi:ev-station"
+      },
+      "charging_at_reduced_current": {
+        "default": "mdi:speedometer-slow"
       }
     },
     "number": {
@@ -50,6 +59,9 @@
       },
       "fallback_limit": {
         "default": "mdi:current-ac"
+      },
+      "communication_timeout": {
+        "default": "mdi:timer-outline"
       }
     }
   }

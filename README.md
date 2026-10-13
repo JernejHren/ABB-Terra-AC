@@ -8,6 +8,8 @@ This integration connects directly to a charger over the local network and polls
 
 **To pause charging while keeping the session alive**, set **Charging Current Limit** to **0 A**. The charger follows IEC 61851-1 minimum current behaviour and will not end the session the way a **Stop Charging** command does.
 
+On a real charger, setting the limit to 0 A (or anything below 6 A) while charging drops the charger to state B1 ("pending authorization"), not to state 5. The **Session State** sensor shows this as `paused_by_current` when Home Assistant has seen the vehicle charging since it was last idle. After a Home Assistant restart it shows `idle` until charging is seen again.
+
 **Stop Charging** ends the session on the charger side. Depending on vehicle and charger behaviour, **starting again may require a new start command** after a stop.
 
 ## Features
@@ -181,7 +183,7 @@ Current update behavior:
 
 The charger counts Modbus communication as lost when nothing is read within its communication timeout (register `4106h`, 60 seconds by default). Keep the poll interval shorter than that timeout. If it is not, Home Assistant shows a repair warning.
 
-If the charger becomes unreachable, entities become unavailable. When communication recovers, entities update automatically on the next successful poll.
+One missed poll (timeout or lost link) keeps the previous values; the charger can miss exactly one poll when it resets itself while idle. If a second poll in a row fails, entities become unavailable. When communication recovers, entities update automatically on the next successful poll.
 
 Known implementation details:
 
@@ -209,6 +211,7 @@ Removing the integration removes its entities and device from Home Assistant. It
 - Support is focused on ABB Terra AC chargers with compatible Modbus register behavior.
 - The integration assumes a single charger device per config entry.
 - Some charger states are derived from observed device behavior instead of documentation alone.
+- The *Charging at reduced current* diagnostic binary sensor (bit 7 of register `400Dh`) is disabled by default: on tested firmware 1.8.37 the bit was set in every charger state, also while charging at the commanded current.
 - Identity sensors are disabled by default because they are usually less relevant for day-to-day dashboards.
 - On tested setups, Modbus TCP is tied to the charger's Ethernet-side connection rather than native charger Wi-Fi.
 - Community reports suggest that Ethernet-to-Wi-Fi bridges or TCP/RS485 converters may work, but these setups are not officially tested by this integration.
@@ -253,6 +256,7 @@ Example dashboard cards:
 - If entities show as unavailable, check charger connectivity and whether the charger still responds to Modbus requests.
 - If the charger IP address or Modbus port changed, use the integration reconfiguration flow in Home Assistant.
 - If current-limit values look wrong after a charger reboot, review the charger state and Home Assistant logs to see whether the firmware recovery workaround was applied.
+- To see what the charger reports, enable debug logging for `custom_components.abb_terra_ac`. A line with the raw registers `400Ch`-`400Fh`, `4022h`-`4023h` and the phase currents is logged whenever the state or limits change. The diagnostics download also contains the raw status block (serial number registers omitted).
 - If the error code sensor shows an error, see [Charger error codes](#charger-error-codes).
 - If serial number or firmware version sensors do not appear, enable them manually in the entity registry because they are disabled by default.
 
