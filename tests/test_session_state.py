@@ -163,3 +163,46 @@ def test_state_5_transition_does_not_last() -> None:
         )
         == SessionState.UNKNOWN
     )
+
+
+def test_b1_after_limit_below_6a_while_charging_is_paused_by_current() -> None:
+    """Real log 12.10 22:21:53-22:22:08: limit 8 -> 0 A during C2 gave B1, not 5."""
+    assert (
+        derive_session_state(
+            charging_state_raw=1,
+            current_limit_modbus=0.0,
+            last_command="none",
+            session_was_active=True,
+            **_NO_CURRENT,
+        )
+        == SessionState.PAUSED_BY_CURRENT
+    )
+
+
+def test_b1_without_earlier_charging_stays_idle() -> None:
+    """B1 after plugging in (limit 6 A on 12.10 22:18:04, 0 A on 11.10 07:56) is idle."""
+    for limit in (0.0, 6.0):
+        assert (
+            derive_session_state(
+                charging_state_raw=1,
+                current_limit_modbus=limit,
+                last_command="none",
+                session_was_active=False,
+                **_NO_CURRENT,
+            )
+            == SessionState.IDLE
+        )
+
+
+def test_b1_with_sufficient_limit_stays_idle_even_after_charging() -> None:
+    """The limit was raised again: not paused by current any more."""
+    assert (
+        derive_session_state(
+            charging_state_raw=1,
+            current_limit_modbus=6.0,
+            last_command="none",
+            session_was_active=True,
+            **_NO_CURRENT,
+        )
+        == SessionState.IDLE
+    )

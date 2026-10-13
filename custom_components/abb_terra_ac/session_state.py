@@ -57,11 +57,14 @@ def derive_session_state(
     charging_current_l2: float,
     charging_current_l3: float,
     state_5_polls: int = 1,
+    session_was_active: bool = False,
 ) -> SessionState:
     """Map raw charger state + limits + last command to SessionState.
 
     Deterministic: only inputs from the latest poll, ``last_command`` and the
     number of consecutive polls that reported state 5 (``state_5_polls``).
+    ``session_was_active`` is True when charging (C1/C2) or a pause (state 5)
+    was seen since the vehicle was last idle or unplugged.
     """
     max_phase = max(
         charging_current_l1,
@@ -69,7 +72,15 @@ def derive_session_state(
         charging_current_l3,
     )
 
-    if charging_state_raw in (0, 1):
+    if charging_state_raw == 1:
+        # Setting the limit below 6 A while charging drops the charger to B1
+        # ("pending authorization"), which looks like a vehicle that has just
+        # been plugged in. Only the history tells the two apart.
+        if session_was_active and current_limit_modbus < _PAUSE_CURRENT_THRESHOLD_A:
+            return SessionState.PAUSED_BY_CURRENT
+        return SessionState.IDLE
+
+    if charging_state_raw == 0:
         return SessionState.IDLE
 
     if charging_state_raw == 2:

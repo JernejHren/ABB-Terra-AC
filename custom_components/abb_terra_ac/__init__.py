@@ -128,6 +128,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         self._is_available = True
         self.last_command: str = LastCommand.NONE
         self._state_5_polls = 0
+        self._session_was_active = False
         self._last_logged_raw: tuple[int, ...] | None = None
 
         # Firmware bug auto-fix: fallback limit
@@ -234,8 +235,17 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         self._state_5_polls = (
             self._state_5_polls + 1 if data["charging_state"] == 5 else 0
         )
+        self._update_session_was_active(data)
         self._async_log_raw_changes()
         return data
+
+    def _update_session_was_active(self, data: AbbTerraAcData) -> None:
+        """Remember whether charging or a pause was seen since the vehicle was idle."""
+        raw = data["charging_state"]
+        if raw in (3, 4, 5):
+            self._session_was_active = True
+        elif raw in (0, 2) or data["socket_lock_state"] == 0:
+            self._session_was_active = False
 
     def _async_log_raw_changes(self) -> None:
         """Debug-log the registers behind the session state when they change.
@@ -367,6 +377,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             charging_current_l2=float(self.data["charging_current_l2"]),
             charging_current_l3=float(self.data["charging_current_l3"]),
             state_5_polls=self._state_5_polls,
+            session_was_active=self._session_was_active,
         )
 
     def _async_log_unavailable(self, reason: str) -> None:

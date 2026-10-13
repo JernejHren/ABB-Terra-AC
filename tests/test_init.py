@@ -356,3 +356,36 @@ async def test_debug_log_of_status_registers_only_on_change(
     lines = [r.getMessage() for r in caplog.records if "Status registers" in r.getMessage()]
     assert len(lines) == 1
     assert "400C-400D=0000 0500" in lines[0]
+
+
+async def test_session_state_follows_a_real_pause_by_limit(hass: HomeAssistant) -> None:
+    """Sequence from the 12.10 log: B1 -> C2 -> limit 0 A -> B1 (paused) -> B1 after unplug."""
+    from custom_components.abb_terra_ac.session_state import SessionState
+
+    def regs(state: int, limit_amps: float) -> list[int]:
+        return make_holding_registers_37(
+            charging_state_nibble=state,
+            reduced_current_bit=True,
+            socket_lock_raw_32=0x11,
+            charging_current_modbus_amps=limit_amps,
+            user_max_amps=20,
+            fallback_limit=20,
+        )
+
+    unit = create_mock_modbus_unit(
+        connect=True, read_error=False, registers=regs(1, 6.0)
+    )
+    entry = await _async_setup(hass, unit)
+    coordinator = entry.runtime_data.coordinator
+    assert coordinator.session_state == SessionState.IDLE  # plugged in, waiting
+
+    for state, limit, expected in (
+        (4, 6.0, SessionState.ACTIVE),
+        (1, 0.0, SessionState.PAUSED_BY_CURRENT),  # limit 0 A while charging
+        (4, 6.0, SessionState.ACTIVE),
+        (0, 0.0, SessionState.IDLE),  # vehicle gone
+        (1, 0.0, SessionState.IDLE),  # plugged in again, nothing charged yet
+    ):
+        unit.read_holding_registers.return_value = regs(state, limit)
+        coordinator.async_set_updated_data(await coordinator._async_update_data())
+        assert coordinator.session_state == expected, (state, limit)

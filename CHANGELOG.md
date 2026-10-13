@@ -19,6 +19,7 @@ Vse pomembne spremembe te integracije so naštete tukaj. Skladno z [Keep a Chang
 - Added direct tests of the device library against the examples in the ABB Modbus manual v1.11.
 - Error code sensor: several simultaneous errors are now decoded (lowest bit is the state; `active_errors`, `raw_code` and `unknown_bits` attributes added). README has a table of all error codes from the Terra AC installation manual.
 - Session state: state 5 ("Paused") with a commanded limit of 6 A or more is now treated as the short transition while a session starts, no longer as "paused by current". Anything below 6 A (not only 0 A) is "paused by current". Seen on a real charger: stop leaves the Modbus limit at 0 A.
+- Session state: a drop to B1 after charging, with a commanded limit below 6 A (what setting the limit to 0 A during charging does on a real charger), is now `paused_by_current` instead of `idle`. B1 right after plugging in stays `idle`. This relies on the state seen since the vehicle was last idle, so after a Home Assistant restart it reads `idle` until charging is seen again.
 - Diagnostics now include the raw status block as hex (serial number registers omitted). With debug logging for `custom_components.abb_terra_ac`, registers 400Ch-400Fh, 4022h-4023h and the phase currents are logged whenever the state or limits change.
 
 ### Spremenjeno
@@ -29,6 +30,7 @@ Vse pomembne spremembe te integracije so naštete tukaj. Skladno z [Keep a Chang
 - Odstranjeni so lasten reconnect, ponovni poskus in Modbus zaklep; skupna povezava sama serializira zahteve in se po izpadu ponovno odpre.
 - V `manifest.json` ni več `pymodbus`; odvisnost je integracija `modbus`.
 - Stanje seje: stanje 5 (pavza) z omejitvijo 6 A ali več je zdaj kratek prehod ob začetku seje, ne več »pavza zaradi toka«. Vse pod 6 A (ne samo 0 A) je »pavza zaradi toka«. Na pravi polnilnici ukaz stop pusti Modbus omejitev na 0 A.
+- Stanje seje: prehod v B1 po polnjenju z omejitvijo pod 6 A (to naredi nastavitev limita na 0 A med polnjenjem) je zdaj `paused_by_current`, ne več `idle`. B1 takoj po priklopu ostane `idle`. Odločitev temelji na stanju od zadnjega mirovanja vozila, zato po ponovnem zagonu HA kaže `idle`, dokler se polnjenje ne zazna znova.
 - Diagnostika vsebuje surovi blok registrov (heksadecimalno, brez serijske številke). Z debug zapisom za `custom_components.abb_terra_ac` se ob spremembi stanja ali omejitev zapišejo registri 400Ch–400Fh, 4022h–4023h in tokovi po fazah.
 
 ## [0.3.3]
