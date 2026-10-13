@@ -38,7 +38,7 @@ async def async_setup_entry(
 class AbbTerraAcBaseNumber(AbbTerraAcEntity, NumberEntity):
     """Base class for number entities."""
 
-    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_category: EntityCategory | None = EntityCategory.CONFIG
 
     def __init__(
         self,

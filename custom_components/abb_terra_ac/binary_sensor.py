@@ -53,7 +53,7 @@ class AbbTerraAcIsChargingBinarySensor(AbbTerraAcEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         """True when charging state register indicates C2."""
         if not self.coordinator.data:
-            return None
+            return None  # type: ignore[unreachable]
         return self.coordinator.data["charging_state"] == _STATE_C2_CHARGING
 
 
@@ -78,5 +78,5 @@ class AbbTerraAcReducedCurrentBinarySensor(AbbTerraAcEntity, BinarySensorEntity)
     def is_on(self) -> bool | None:
         """True when reduced current bit is set."""
         if not self.coordinator.data:
-            return None
+            return None  # type: ignore[unreachable]
         return self.coordinator.data.get("charging_at_reduced_current", False)

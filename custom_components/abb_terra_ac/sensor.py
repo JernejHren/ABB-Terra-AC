@@ -112,7 +112,7 @@ class AbbTerraAcChargingStateSensor(AbbTerraAcBaseSensor):
     def native_value(self) -> str | None:
         charging_state = self.coordinator.data.get("charging_state")
         if charging_state is None:
-            return "Unknown"
+            return "Unknown"  # type: ignore[unreachable]
         return CHARGING_STATES.get(int(charging_state), "Unknown")
 
 
@@ -142,7 +142,7 @@ class AbbTerraAcSessionStateSensor(AbbTerraAcBaseSensor):
         """Debug-friendly context: raw register, limits, and connection."""
         d = self.coordinator.data
         if not d:
-            return {}
+            return {}  # type: ignore[unreachable]
         return {
             "charging_state_raw": d["charging_state"],
             "current_limit": d["charging_current_limit_modbus"],
@@ -231,7 +231,7 @@ class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
         """
         error_code = self.coordinator.data.get("error_code")
         if error_code is None:
-            return "unknown"
+            return "unknown"  # type: ignore[unreachable]
         keys, _ = decode_error_bits(int(error_code))
         return keys[0] if keys else "unknown"
 
@@ -240,7 +240,7 @@ class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
         """Expose the raw register value and every error bit that is set."""
         error_code = self.coordinator.data.get("error_code")
         if error_code is None:
-            return None
+            return None  # type: ignore[unreachable]
         keys, unknown_mask = decode_error_bits(int(error_code))
         attributes: dict[str, Any] = {
             "raw_code": f"0x{int(error_code) & 0xFFFFFFFF:04X}",
@@ -268,7 +268,7 @@ class AbbTerraAcSocketLockStateSensor(AbbTerraAcBaseSensor):
     def native_value(self) -> str:
         lock_code = self.coordinator.data.get("socket_lock_state")
         if lock_code is None:
-            return "unknown"
+            return "unknown"  # type: ignore[unreachable]
         return SOCKET_LOCK_STATES.get(int(lock_code), "unknown")
 
 
@@ -340,7 +340,7 @@ class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
     @property
     def native_value(self) -> float | None:
         if not self.coordinator.data:
-            return None
+            return None  # type: ignore[unreachable]
         return self.coordinator.data.get("energy_delivered")
 
     @property

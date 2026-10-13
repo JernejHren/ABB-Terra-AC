@@ -383,7 +383,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
     def session_state(self) -> SessionState:
         """Derived session state from the latest poll and last_command."""
         if not self.data:
-            return SessionState.UNKNOWN
+            return SessionState.UNKNOWN  # type: ignore[unreachable]
         return derive_session_state(
             charging_state_raw=self.data["charging_state"],
             current_limit_modbus=float(self.data["charging_current_limit_modbus"]),
