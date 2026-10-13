@@ -21,10 +21,11 @@ def mock_config_entry_data() -> dict:
 
 
 def mock_config_entry_kwargs() -> dict:
-    """Kwargs for MockConfigEntry matching integration version 3."""
+    """Kwargs for MockConfigEntry matching integration version 4."""
     return {
         "domain": DOMAIN,
-        "version": 3,
+        "version": 4,
         "data": mock_config_entry_data(),
         "options": MOCK_ENTRY_OPTIONS.copy(),
+        "unique_id": f"{MOCK_HOST}:{MOCK_PORT}:{MOCK_UNIT_ID}",
     }

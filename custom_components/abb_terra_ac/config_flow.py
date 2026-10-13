@@ -27,6 +27,7 @@ from .const import (
     DEFAULT_UNIT_ID,
     DOMAIN,
     MODBUS_READ_TIMEOUT,
+    build_unique_id,
 )
 from .options_flow import AbbTerraAcOptionsFlow
 
@@ -36,7 +37,7 @@ _LOGGER = logging.getLogger(__name__)
 class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ABB Terra AC."""
 
-    VERSION = 3
+    VERSION = 4
 
     @staticmethod
     @callback
@@ -122,7 +123,9 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         host = user_input[CONF_HOST]
         port = user_input[CONF_PORT]
-        new_unique_id = f"{host}:{port}"
+        new_unique_id = build_unique_id(
+            host, port, user_input.get(CONF_UNIT_ID, DEFAULT_UNIT_ID)
+        )
 
         try:
             await self._async_validate_input(user_input)
@@ -163,7 +166,9 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         host = user_input[CONF_HOST]
         port = user_input[CONF_PORT]
-        new_unique_id = f"{host}:{port}"
+        new_unique_id = build_unique_id(
+            host, port, user_input.get(CONF_UNIT_ID, DEFAULT_UNIT_ID)
+        )
 
         try:
             await self._async_validate_input(user_input)

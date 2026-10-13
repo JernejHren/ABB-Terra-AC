@@ -144,7 +144,7 @@ async def test_successful_flow(hass: HomeAssistant) -> None:
     }
     entries = hass.config_entries.async_entries(DOMAIN)
     assert len(entries) == 1
-    assert entries[0].version == 3
+    assert entries[0].version == 4
     assert entries[0].options[CONF_SCAN_INTERVAL] == DEFAULT_SCAN_INTERVAL
     unit.require_timeout.assert_called_once()
     unit.read_holding_registers.assert_awaited_once_with(16384, 1)
@@ -166,10 +166,9 @@ async def test_custom_unit_id_is_stored(hass: HomeAssistant) -> None:
 
 
 async def test_already_configured(hass: HomeAssistant) -> None:
-    """Abort when unique_id host:port is already registered."""
+    """Abort when unique_id host:port:unit_id is already registered."""
     MockConfigEntry(
         **mock_config_entry_kwargs(),
-        unique_id="192.168.1.50:502",
     ).add_to_hass(hass)
 
     unit = create_mock_modbus_unit(connect=True, read_error=False)
@@ -185,10 +184,28 @@ async def test_already_configured(hass: HomeAssistant) -> None:
     assert result["reason"] == "already_configured"
 
 
+async def test_same_address_with_other_unit_id_is_a_new_charger(
+    hass: HomeAssistant,
+) -> None:
+    """Two chargers behind one gateway address differ by unit ID."""
+    MockConfigEntry(**mock_config_entry_kwargs()).add_to_hass(hass)
+
+    unit = create_mock_modbus_unit(connect=True, read_error=False)
+    result = await _start_user_flow(hass)
+
+    with _patch_unit(unit), patch(_SETUP_ENTRY, return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502, CONF_UNIT_ID: 2},
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == "192.168.1.50:502:2"
+
+
 def _reconfigure_entry() -> MockConfigEntry:
     return MockConfigEntry(
         **mock_config_entry_kwargs(),
-        unique_id="192.168.1.50:502",
         title="ABB Terra AC (192.168.1.50)",
     )
 
@@ -225,7 +242,7 @@ async def test_reconfigure_updates_existing_entry(hass: HomeAssistant) -> None:
         CONF_UNIT_ID: 2,
     }
     assert entry.title == "ABB Terra AC (192.168.1.60)"
-    assert entry.unique_id == "192.168.1.60:1502"
+    assert entry.unique_id == "192.168.1.60:1502:2"
 
 
 async def test_reconfigure_keeps_reconfigure_step_on_validation_error(

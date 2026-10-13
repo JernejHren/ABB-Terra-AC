@@ -132,7 +132,7 @@ async def test_config_entry_diagnostics_redact_sensitive_data(
     assert result["entry"]["data"][CONF_HOST] == "**REDACTED**"
     assert result["entry"]["data"][CONF_PORT] == 502
     assert result["entry"]["data"][CONF_UNIT_ID] == 1
-    assert result["entry"]["version"] == 3
+    assert result["entry"]["version"] == 4
     assert result["entry"]["options"][CONF_SCAN_INTERVAL] == DEFAULT_SCAN_INTERVAL
     assert result["device"]["host"] == "**REDACTED**"
     assert result["device"]["port"] == 502
@@ -188,9 +188,10 @@ async def test_migrate_v1_to_current_adds_defaults(hass: HomeAssistant) -> None:
     entry.add_to_hass(hass)
 
     assert await async_migrate_entry(hass, entry) is True
-    assert entry.version == 3
+    assert entry.version == 4
     assert entry.options[CONF_SCAN_INTERVAL] == DEFAULT_SCAN_INTERVAL
     assert entry.data[CONF_UNIT_ID] == 1
+    assert entry.unique_id == "192.168.1.50:502:1"
 
 
 async def test_migrate_v2_adds_unit_id_and_keeps_data(hass: HomeAssistant) -> None:
@@ -204,9 +205,10 @@ async def test_migrate_v2_adds_unit_id_and_keeps_data(hass: HomeAssistant) -> No
     entry.add_to_hass(hass)
 
     assert await async_migrate_entry(hass, entry) is True
-    assert entry.version == 3
+    assert entry.version == 4
     assert entry.data == {CONF_HOST: "192.168.1.50", CONF_PORT: 1502, CONF_UNIT_ID: 1}
     assert entry.options[CONF_SCAN_INTERVAL] == 30
+    assert entry.unique_id == "192.168.1.50:1502:1"
 
 
 @pytest.mark.parametrize(
@@ -421,3 +423,20 @@ async def test_single_missed_poll_keeps_entities_available(
     assert coordinator.last_update_success is False
     await coordinator.async_refresh()
     assert coordinator.last_update_success is True
+
+
+async def test_migrate_v3_adds_unit_id_to_unique_id(hass: HomeAssistant) -> None:
+    """Version 3 entries keep their data; the unique ID gains the unit ID."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=3,
+        unique_id="192.168.1.50:502",
+        data={CONF_HOST: "192.168.1.50", CONF_PORT: 502, CONF_UNIT_ID: 5},
+        options={CONF_SCAN_INTERVAL: 15},
+    )
+    entry.add_to_hass(hass)
+
+    assert await async_migrate_entry(hass, entry) is True
+    assert entry.version == 4
+    assert entry.unique_id == "192.168.1.50:502:5"
+    assert entry.data == {CONF_HOST: "192.168.1.50", CONF_PORT: 502, CONF_UNIT_ID: 5}

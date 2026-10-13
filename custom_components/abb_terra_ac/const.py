@@ -88,3 +88,8 @@ def decode_error_bits(code: int) -> tuple[list[str], int]:
             keys.append(key)
             known_mask |= value
     return keys, code & ~known_mask
+
+
+def build_unique_id(host: str | int, port: str | int, unit_id: str | int) -> str:
+    """Config entry unique ID: one entry per charger (host, port and Modbus unit ID)."""
+    return f"{host}:{port}:{unit_id}"

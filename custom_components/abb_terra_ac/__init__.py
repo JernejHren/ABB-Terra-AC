@@ -29,6 +29,7 @@ from .const import (
     DOMAIN,
     MODBUS_READ_TIMEOUT,
     PLATFORMS,
+    build_unique_id,
 )
 from .session_state import LastCommand, SessionState, derive_session_state
 
@@ -96,6 +97,16 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data = dict(entry.data)
         data.setdefault(CONF_UNIT_ID, DEFAULT_UNIT_ID)
         hass.config_entries.async_update_entry(entry, version=3, data=data)
+
+    if entry.version == 3:
+        # Version 4: the unique ID includes the unit ID (host:port:unit_id), so
+        # several chargers behind one gateway address can be added.
+        unique_id = build_unique_id(
+            entry.data[CONF_HOST],
+            entry.data[CONF_PORT],
+            entry.data.get(CONF_UNIT_ID, DEFAULT_UNIT_ID),
+        )
+        hass.config_entries.async_update_entry(entry, version=4, unique_id=unique_id)
 
     return True
 
