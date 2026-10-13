@@ -61,6 +61,9 @@ class AbbTerraAcReducedCurrentBinarySensor(AbbTerraAcEntity, BinarySensorEntity)
     """True when charger is operating below the commanded current limit."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # Bit 7 of 400Dh was set in every state on a real charger (firmware 1.8.37),
+    # also while charging at the commanded current, so it is off by default.
+    _attr_entity_registry_enabled_default = False
     _attr_translation_key = "charging_at_reduced_current"
 
     def __init__(
