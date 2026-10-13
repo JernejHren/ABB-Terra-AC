@@ -34,6 +34,10 @@ from .session_state import LastCommand, SessionState, derive_session_state
 
 _LOGGER = logging.getLogger(__name__)
 
+# Consecutive failed polls (timeout or lost link) tolerated before entities go
+# unavailable.
+TOLERATED_FAILED_POLLS = 1
+
 _ISSUE_ID_INVALID_FALLBACK_LIMIT = "invalid_fallback_limit"
 _ISSUE_ID_INVALID_CURRENT_LIMIT = "invalid_current_limit"
 _ISSUE_ID_SCAN_INTERVAL = "scan_interval_exceeds_timeout"
@@ -129,6 +133,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         self.last_command: str = LastCommand.NONE
         self._state_5_polls = 0
         self._session_was_active = False
+        self._failed_polls = 0
         self._last_logged_raw: tuple[int, ...] | None = None
 
         # Firmware bug auto-fix: fallback limit
@@ -215,6 +220,15 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         try:
             data = await self.device.async_read_status()
         except (ModbusConnectionError, ModbusTimeoutError, TimeoutError) as err:
+            self._failed_polls += 1
+            if self.data is not None and self._failed_polls <= TOLERATED_FAILED_POLLS:
+                # The charger sometimes resets while idle and misses exactly one
+                # poll. Keep the last data for that one poll instead of marking
+                # every entity unavailable for a whole scan interval.
+                _LOGGER.debug(
+                    "Poll failed (%s); keeping the previous data", err
+                )
+                return self.data
             self._async_log_unavailable(f"Connection error: {err}")
             raise UpdateFailed(f"Connection error: {err}") from err
         except ModbusError as err:
@@ -225,6 +239,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             _LOGGER.error("Unexpected error: %s", err, exc_info=True)
             raise UpdateFailed(err) from err
 
+        self._failed_polls = 0
         await self._async_restore_invalid_limits(data)
         self._async_check_scan_interval(data)
 

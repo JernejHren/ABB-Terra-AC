@@ -87,9 +87,12 @@ async def test_logs_when_unavailable_and_when_available_again(
     success_registers = unit.read_holding_registers.return_value
     unit.read_holding_registers.side_effect = [
         ModbusConnectionError("charger offline"),
+        ModbusConnectionError("charger offline"),
         success_registers,
     ]
 
+    # The first failed poll is tolerated, the second one is an outage.
+    await coordinator._async_update_data()
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
     await coordinator._async_update_data()
@@ -224,6 +227,8 @@ async def test_coordinator_connection_errors_raise_update_failed(
     coordinator = entry.runtime_data.coordinator
     unit.read_holding_registers.side_effect = error
 
+    # One missed poll keeps the previous data; a second one is an outage.
+    assert await coordinator._async_update_data() is coordinator.data
     with pytest.raises(UpdateFailed, match="Connection error"):
         await coordinator._async_update_data()
 
@@ -389,3 +394,30 @@ async def test_session_state_follows_a_real_pause_by_limit(hass: HomeAssistant) 
         unit.read_holding_registers.return_value = regs(state, limit)
         coordinator.async_set_updated_data(await coordinator._async_update_data())
         assert coordinator.session_state == expected, (state, limit)
+
+
+async def test_single_missed_poll_keeps_entities_available(
+    hass: HomeAssistant,
+) -> None:
+    """One poll lost to a charger reset does not make entities unavailable."""
+    unit = create_mock_modbus_unit(connect=True, read_error=False)
+    entry = await _async_setup(hass, unit)
+    coordinator = entry.runtime_data.coordinator
+    good = unit.read_holding_registers.return_value
+
+    unit.read_holding_registers.side_effect = [ModbusTimeoutError("reset"), good]
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    await coordinator.async_refresh()  # a good poll resets the failure count
+
+    unit.read_holding_registers.side_effect = [
+        ModbusTimeoutError("down"),
+        ModbusTimeoutError("down"),
+        good,
+    ]
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is False
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
