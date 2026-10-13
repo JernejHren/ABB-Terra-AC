@@ -144,7 +144,7 @@ You need:
 - The Modbus TCP port, usually `502`
 - The Modbus unit ID, usually `1`
 
-The integration creates one config entry per charger and uses `host:port` as its unique identifier.
+The integration creates one config entry per charger and uses `host:port:unit_id` as its unique identifier.
 
 ### Configuration parameters
 
