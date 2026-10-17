@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 from datetime import timedelta
+from time import monotonic
 
 from homeassistant.components.modbus import async_get_unit
 from homeassistant.config_entries import ConfigEntry
@@ -35,9 +36,11 @@ from .session_state import LastCommand, SessionState, derive_session_state
 
 _LOGGER = logging.getLogger(__name__)
 
-# Consecutive failed polls (timeout or lost link) tolerated before entities go
-# unavailable.
-TOLERATED_FAILED_POLLS = 1
+# Failed polls (timeout or lost link) are tolerated, keeping the last data, for
+# this long after the last successful poll before entities go unavailable.
+# The idle charger resets its network stack every 12-14 min; in the real log
+# (16.10.2026) recovery took 33-51 s after the last good poll.
+TOLERATED_FAILURE_SECONDS = 90.0
 
 _ISSUE_ID_INVALID_FALLBACK_LIMIT = "invalid_fallback_limit"
 _ISSUE_ID_INVALID_CURRENT_LIMIT = "invalid_current_limit"
@@ -145,6 +148,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
         self._state_5_polls = 0
         self._session_was_active = False
         self._failed_polls = 0
+        self._last_success: float | None = None
         self._last_logged_raw: tuple[int, ...] | None = None
 
         # Firmware bug auto-fix: fallback limit
@@ -232,10 +236,16 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             data = await self.device.async_read_status()
         except (ModbusConnectionError, ModbusTimeoutError, TimeoutError) as err:
             self._failed_polls += 1
-            if self.data is not None and self._failed_polls <= TOLERATED_FAILED_POLLS:
-                # The charger sometimes resets while idle and misses exactly one
-                # poll. Keep the last data for that one poll instead of marking
-                # every entity unavailable for a whole scan interval.
+            if self.data is not None and (
+                self._failed_polls == 1
+                or (
+                    self._last_success is not None
+                    and monotonic() - self._last_success < TOLERATED_FAILURE_SECONDS
+                )
+            ):
+                # The idle charger resets its network stack now and then and
+                # answers nothing for up to ~50 s. Keep the last data meanwhile
+                # instead of marking every entity unavailable.
                 _LOGGER.debug(
                     "Poll failed (%s); keeping the previous data", err
                 )
@@ -251,6 +261,7 @@ class AbbTerraAcDataUpdateCoordinator(DataUpdateCoordinator[AbbTerraAcData]):
             raise UpdateFailed(err) from err
 
         self._failed_polls = 0
+        self._last_success = monotonic()
         await self._async_restore_invalid_limits(data)
         self._async_check_scan_interval(data)
 

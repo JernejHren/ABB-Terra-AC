@@ -183,7 +183,7 @@ Current update behavior:
 
 The charger counts Modbus communication as lost when nothing is read within its communication timeout (register `4106h`, 60 seconds by default). Keep the poll interval shorter than that timeout. If it is not, Home Assistant shows a repair warning.
 
-One missed poll (timeout or lost link) keeps the previous values; the charger can miss exactly one poll when it resets itself while idle. If a second poll in a row fails, entities become unavailable. When communication recovers, entities update automatically on the next successful poll.
+Failed polls (timeout or lost link) keep the previous values for up to 90 s after the last successful poll; an idle charger resets its network stack every 12–14 minutes and stays silent for 30–50 s. If it is still silent after that, entities become unavailable. When communication recovers, entities update automatically on the next successful poll.
 
 Known implementation details:
 

@@ -11,7 +11,7 @@ from modbus_connection import (
 )
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.abb_terra_ac import async_migrate_entry
+from custom_components.abb_terra_ac import TOLERATED_FAILURE_SECONDS, async_migrate_entry
 from custom_components.abb_terra_ac import binary_sensor as binary_sensor_platform
 from custom_components.abb_terra_ac import button as button_platform
 from custom_components.abb_terra_ac import diagnostics
@@ -91,8 +91,9 @@ async def test_logs_when_unavailable_and_when_available_again(
         success_registers,
     ]
 
-    # The first failed poll is tolerated, the second one is an outage.
+    # Failures shortly after a good poll are tolerated, later ones are an outage.
     await coordinator._async_update_data()
+    coordinator._last_success -= TOLERATED_FAILURE_SECONDS + 1
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
     await coordinator._async_update_data()
@@ -229,8 +230,11 @@ async def test_coordinator_connection_errors_raise_update_failed(
     coordinator = entry.runtime_data.coordinator
     unit.read_holding_registers.side_effect = error
 
-    # One missed poll keeps the previous data; a second one is an outage.
+    # Failures shortly after the last good poll keep the previous data ...
     assert await coordinator._async_update_data() is coordinator.data
+    assert await coordinator._async_update_data() is coordinator.data
+    # ... but once the grace period has passed it is an outage.
+    coordinator._last_success -= TOLERATED_FAILURE_SECONDS + 1
     with pytest.raises(UpdateFailed, match="Connection error"):
         await coordinator._async_update_data()
 
@@ -398,10 +402,10 @@ async def test_session_state_follows_a_real_pause_by_limit(hass: HomeAssistant) 
         assert coordinator.session_state == expected, (state, limit)
 
 
-async def test_single_missed_poll_keeps_entities_available(
+async def test_missed_polls_within_grace_keep_entities_available(
     hass: HomeAssistant,
 ) -> None:
-    """One poll lost to a charger reset does not make entities unavailable."""
+    """Polls lost to a charger reset do not make entities unavailable at once."""
     unit = create_mock_modbus_unit(connect=True, read_error=False)
     entry = await _async_setup(hass, unit)
     coordinator = entry.runtime_data.coordinator
@@ -419,8 +423,18 @@ async def test_single_missed_poll_keeps_entities_available(
     ]
     await coordinator.async_refresh()
     assert coordinator.last_update_success is True
+    await coordinator.async_refresh()  # still within the grace period
+    assert coordinator.last_update_success is True
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+
+    # Silence that outlasts the grace period is an outage.
+    unit.read_holding_registers.side_effect = [ModbusTimeoutError("down")] * 2
+    await coordinator.async_refresh()
+    coordinator._last_success -= TOLERATED_FAILURE_SECONDS + 1
     await coordinator.async_refresh()
     assert coordinator.last_update_success is False
+    unit.read_holding_registers.side_effect = [good]
     await coordinator.async_refresh()
     assert coordinator.last_update_success is True
 
