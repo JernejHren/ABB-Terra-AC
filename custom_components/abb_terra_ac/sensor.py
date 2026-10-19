@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorEntity,
@@ -27,6 +28,7 @@ from .const import (
     LAST_COMMAND_OPTIONS,
     SESSION_STATE_OPTIONS,
     SOCKET_LOCK_STATES,
+    decode_error_bits,
 )
 from .entity import AbbTerraAcEntity
 from .session_state import SESSION_STATE_ICONS, vehicle_connected_from_socket_lock
@@ -110,7 +112,7 @@ class AbbTerraAcChargingStateSensor(AbbTerraAcBaseSensor):
     def native_value(self) -> str | None:
         charging_state = self.coordinator.data.get("charging_state")
         if charging_state is None:
-            return "Unknown"
+            return "Unknown"  # type: ignore[unreachable]
         return CHARGING_STATES.get(int(charging_state), "Unknown")
 
 
@@ -140,7 +142,7 @@ class AbbTerraAcSessionStateSensor(AbbTerraAcBaseSensor):
         """Debug-friendly context: raw register, limits, and connection."""
         d = self.coordinator.data
         if not d:
-            return {}
+            return {}  # type: ignore[unreachable]
         return {
             "charging_state_raw": d["charging_state"],
             "current_limit": d["charging_current_limit_modbus"],
@@ -220,10 +222,33 @@ class AbbTerraAcErrorCodeSensor(AbbTerraAcBaseSensor):
 
     @property
     def native_value(self) -> str:
+        """Return the lowest documented error bit that is set.
+
+        An exact match is returned as before. If several error bits are set at
+        once, the lowest one is the state and all of them are listed in the
+        ``active_errors`` attribute. A value with no documented bit is
+        ``unknown``.
+        """
         error_code = self.coordinator.data.get("error_code")
         if error_code is None:
-            return "unknown"
-        return ERROR_CODES.get(int(error_code), "unknown")
+            return "unknown"  # type: ignore[unreachable]
+        keys, _ = decode_error_bits(int(error_code))
+        return keys[0] if keys else "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the raw register value and every error bit that is set."""
+        error_code = self.coordinator.data.get("error_code")
+        if error_code is None:
+            return None  # type: ignore[unreachable]
+        keys, unknown_mask = decode_error_bits(int(error_code))
+        attributes: dict[str, Any] = {
+            "raw_code": f"0x{int(error_code) & 0xFFFFFFFF:04X}",
+            "active_errors": keys,
+        }
+        if unknown_mask:
+            attributes["unknown_bits"] = f"0x{unknown_mask:04X}"
+        return attributes
 
 
 class AbbTerraAcSocketLockStateSensor(AbbTerraAcBaseSensor):
@@ -243,7 +268,7 @@ class AbbTerraAcSocketLockStateSensor(AbbTerraAcBaseSensor):
     def native_value(self) -> str:
         lock_code = self.coordinator.data.get("socket_lock_state")
         if lock_code is None:
-            return "unknown"
+            return "unknown"  # type: ignore[unreachable]
         return SOCKET_LOCK_STATES.get(int(lock_code), "unknown")
 
 
@@ -315,7 +340,7 @@ class AbbTerraAcEnergyDeliveredSensor(AbbTerraAcBaseSensor):
     @property
     def native_value(self) -> float | None:
         if not self.coordinator.data:
-            return None
+            return None  # type: ignore[unreachable]
         return self.coordinator.data.get("energy_delivered")
 
     @property

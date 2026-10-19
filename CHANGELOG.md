@@ -2,6 +2,45 @@
 
 Vse pomembne spremembe te integracije so naštete tukaj. Skladno z [Keep a Changelog](https://keepachangelog.com/sl/1.0.0/).
 
+## [0.4.0]
+
+### Release notes (EN)
+
+- **Requires Home Assistant 2026.9 or newer.** The integration now uses Home Assistant's shared Modbus connection (`modbus.async_get_unit`) instead of opening its own `pymodbus` client.
+- Charger communication moved into a Home Assistant-independent device library (`abb_terra_ac.api`) built on `modbus-connection`.
+- Added a **Modbus unit ID** field to setup and reconfigure (default `1`). Existing config entries are migrated automatically (entry version 3).
+- Removed the integration's own reconnect, retry and Modbus lock: the shared connection serializes requests and reopens itself after a dropped link.
+- The `pymodbus` requirement was removed from `manifest.json`; the `modbus` integration is now a dependency.
+- Diagnostics: the `client` section is now `device` and includes the unit ID.
+- Tests rewritten for the new Modbus layer; duplicated `tests/tests` copy removed.
+- Fixed the current limit being written 1 mA too low for some values (float truncation); out-of-range values are now rejected instead of wrapped.
+- Charging state is now masked with bits 6..0 as in the manual; clarified the register 400Dh comment.
+- New repair warning when the poll interval is not shorter than the charger's communication timeout (EN/SL). README corrected: poll interval is configurable, and the charging state byte layout matches the ABB document.
+- Added direct tests of the device library against the examples in the ABB Modbus manual v1.11.
+- Error code sensor: several simultaneous errors are now decoded (lowest bit is the state; `active_errors`, `raw_code` and `unknown_bits` attributes added). README has a table of all error codes from the Terra AC installation manual.
+- Session state: state 5 ("Paused") with a commanded limit of 6 A or more is now treated as the short transition while a session starts, no longer as "paused by current". Anything below 6 A (not only 0 A) is "paused by current". Seen on a real charger: stop leaves the Modbus limit at 0 A.
+- Session state: a drop to B1 after charging, with a commanded limit below 6 A (what setting the limit to 0 A during charging does on a real charger), is now `paused_by_current` instead of `idle`. B1 right after plugging in stays `idle`. This relies on the state seen since the vehicle was last idle, so after a Home Assistant restart it reads `idle` until charging is seen again.
+- Translations: `en.json` was missing the names of the *Charging at Reduced Current*, *Communication Timeout* and *User Settable Max Current* entities. `sl.json` now also has the options dialog, field descriptions, entity names and the state values of the session, last command, error code and socket lock sensors. Icons added for four more entities. A test keeps the translation files complete.
+- The config entry unique ID is now `host:port:unit_id` (entry version 4), so several chargers behind one Modbus gateway address can be added. Existing entries are migrated automatically; entities, history and settings are kept.
+- The "charging at reduced current" diagnostic binary sensor is now disabled by default for new installs: on a real charger bit 7 was set in every state, including while charging at the commanded current. Existing entities are not changed.
+- Failed polls (timeout or lost link) no longer make the entities unavailable right away: the previous data is kept for up to 90 s after the last successful poll. This hides the 30–50 s silence seen when an idle charger resets its network stack about every 12–14 minutes (a full day's log showed 17 resets, 12 of which outlasted a single tolerated poll).
+- Diagnostics now include the raw status block as hex (serial number registers omitted). With debug logging for `custom_components.abb_terra_ac`, registers 400Ch-400Fh, 4022h-4023h and the phase currents are logged whenever the state or limits change.
+
+### Spremenjeno
+
+- Integracija zahteva **Home Assistant 2026.9 ali novejši** in uporablja skupno Modbus povezavo prek vgrajene integracije `modbus` (`async_get_unit`) namesto lastnega odjemalca `pymodbus`.
+- Komunikacija s polnilnico je v ločeni knjižnici brez odvisnosti od Home Assistanta (`abb_terra_ac.api`) na osnovi `modbus-connection`.
+- Nastavitev in ponovna nastavitev imata novo polje **Modbus unit ID** (privzeto `1`). Obstoječi vnosi se samodejno migrirajo.
+- Odstranjeni so lasten reconnect, ponovni poskus in Modbus zaklep; skupna povezava sama serializira zahteve in se po izpadu ponovno odpre.
+- V `manifest.json` ni več `pymodbus`; odvisnost je integracija `modbus`.
+- Stanje seje: stanje 5 (pavza) z omejitvijo 6 A ali več je zdaj kratek prehod ob začetku seje, ne več »pavza zaradi toka«. Vse pod 6 A (ne samo 0 A) je »pavza zaradi toka«. Na pravi polnilnici ukaz stop pusti Modbus omejitev na 0 A.
+- Stanje seje: prehod v B1 po polnjenju z omejitvijo pod 6 A (to naredi nastavitev limita na 0 A med polnjenjem) je zdaj `paused_by_current`, ne več `idle`. B1 takoj po priklopu ostane `idle`. Odločitev temelji na stanju od zadnjega mirovanja vozila, zato po ponovnem zagonu HA kaže `idle`, dokler se polnjenje ne zazna znova.
+- Prevodi: v `en.json` so manjkala imena entitet *Charging at Reduced Current*, *Communication Timeout* in *User Settable Max Current*. `sl.json` ima zdaj tudi okno z možnostmi, opise polj, imena entitet in vrednosti stanj senzorjev seje, zadnjega ukaza, kode napake in zaklepa vtičnice. Dodane so ikone za štiri entitete. Test skrbi, da so prevodi popolni.
+- Unikatni ID vnosa je zdaj `host:port:unit_id` (različica vnosa 4), zato je mogoče dodati več polnilnic za istim Modbus prehodom. Obstoječi vnosi se migrirajo samodejno; entitete, zgodovina in nastavitve ostanejo.
+- Diagnostični binarni senzor »polnjenje z zmanjšanim tokom« je pri novih namestitvah privzeto onemogočen: na pravi polnilnici je bil bit 7 nastavljen v vseh stanjih, tudi med polnjenjem s predpisanim tokom. Obstoječe entitete se ne spremenijo.
+- Neuspešne meritve (časovna omejitev ali prekinjena povezava) ne naredijo več takoj entitet nedosegljivih: prejšnji podatki se obdržijo do 90 s po zadnji uspešni meritvi. S tem se skrije 30–50 s tišine, ki jo povzroči ponastavitev omrežnega sklada polnilnice v mirovanju na vsakih 12–14 minut (dnevni dnevnik: 17 ponastavitev, od tega jih je 12 trajalo dlje od ene tolerirane meritve).
+- Diagnostika vsebuje surovi blok registrov (heksadecimalno, brez serijske številke). Z debug zapisom za `custom_components.abb_terra_ac` se ob spremembi stanja ali omejitev zapišejo registri 400Ch–400Fh, 4022h–4023h in tokovi po fazah.
+
 ## [0.3.3]
 
 ### Release notes (EN)

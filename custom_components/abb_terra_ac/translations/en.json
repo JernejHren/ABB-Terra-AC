@@ -6,11 +6,13 @@
         "description": "Enter the IP address and port of your ABB Terra AC charger",
         "data": {
           "host": "IP address",
-          "port": "Modbus TCP port"
+          "port": "Modbus TCP port",
+          "unit_id": "Modbus unit ID"
         },
         "data_description": {
           "host": "Hostname or IPv4 address of the charger on your local network.",
-          "port": "TCP port for Modbus (typically 502 for ABB Terra AC)."
+          "port": "TCP port for Modbus (typically 502 for ABB Terra AC).",
+          "unit_id": "Modbus unit (slave) ID of the charger, usually 1."
         }
       },
       "reconfigure": {
@@ -18,11 +20,13 @@
         "description": "Update the IP address and port of your ABB Terra AC charger",
         "data": {
           "host": "IP address",
-          "port": "Modbus TCP port"
+          "port": "Modbus TCP port",
+          "unit_id": "Modbus unit ID"
         },
         "data_description": {
           "host": "Hostname or IPv4 address of the charger on your local network.",
-          "port": "TCP port for Modbus (typically 502 for ABB Terra AC)."
+          "port": "TCP port for Modbus (typically 502 for ABB Terra AC).",
+          "unit_id": "Modbus unit (slave) ID of the charger, usually 1."
         }
       }
     },
@@ -30,7 +34,8 @@
       "cannot_connect": "Failed to connect to the charger. Check the IP address and port.",
       "timeout": "Connection to the charger timed out. Check your network connection.",
       "invalid_response": "The charger is not responding correctly. Check if Modbus TCP is enabled.",
-      "unknown": "Unexpected error during connection"
+      "unknown": "Unexpected error during connection",
+      "connection_conflict": "The charger is already in use by another integration with different connection settings. Use the same settings or remove the other configuration."
     },
     "abort": {
       "already_configured": "This charger is already configured",
@@ -140,6 +145,9 @@
       },
       "actual_current_limit": {
         "name": "Actual Current Limit"
+      },
+      "user_settable_max_current": {
+        "name": "User Settable Max Current"
       }
     },
     "switch": {
@@ -152,22 +160,26 @@
         "name": "Start Charging"
       },
       "stop_charging": {
-        "name": "Stop Charging",
-        "description": "Ends the charging session. Starting again may require a new start command."
+        "name": "Stop Charging"
       }
     },
     "binary_sensor": {
       "is_charging": {
         "name": "Is Charging"
+      },
+      "charging_at_reduced_current": {
+        "name": "Charging at Reduced Current"
       }
     },
     "number": {
       "current_limit": {
-        "name": "Charging Current Limit",
-        "description": "Set to 0 A to pause charging without ending the session."
+        "name": "Charging Current Limit"
       },
       "fallback_limit": {
         "name": "Fallback Limit"
+      },
+      "communication_timeout": {
+        "name": "Communication Timeout"
       }
     }
   },
@@ -183,6 +195,10 @@
     "firmware_limit_restore_failed": {
       "title": "ABB Terra AC charger returned an invalid {limit_name}",
       "description": "The charger reported a {limit_name} of {current_value} A, which is above the configured maximum of {max_value} A. Home Assistant tried to restore a valid value automatically, but the charger did not accept the change. Verify the charger configuration, set a valid limit on the charger if needed, and reload or reconfigure the integration after the device is stable again."
+    },
+    "scan_interval_exceeds_timeout": {
+      "title": "Polling interval is not shorter than the charger's communication timeout",
+      "description": "Home Assistant reads the charger every {scan_interval} s, but the charger's communication timeout is {timeout} s. The charger may treat Modbus communication as lost and report error 0x4000 (modbus_communication_lost). Lower the polling interval in the integration options, or increase the communication timeout number entity."
     }
   }
 }

@@ -10,7 +10,8 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 
 from . import AbbTerraAcRuntimeData
-from .const import AbbTerraAcData, CONF_SCAN_INTERVAL
+from .api import AbbTerraAcData
+from .const import CONF_SCAN_INTERVAL, CONF_UNIT_ID, DEFAULT_UNIT_ID
 
 # Config entry data and client host are PII (network identity; treat as sensitive).
 _REDACT_CONFIG = {CONF_HOST}
@@ -23,7 +24,7 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry (host and serial redacted)."""
     runtime_data: AbbTerraAcRuntimeData = entry.runtime_data
     coordinator = runtime_data.coordinator
-    client = runtime_data.client
+    device = runtime_data.device
 
     coordinator_data: AbbTerraAcData = coordinator.data
 
@@ -31,6 +32,18 @@ async def async_get_config_entry_diagnostics(
     # Ensure host is never leaked even if schema changes.
     if CONF_HOST in entry.data:
         entry_data[CONF_HOST] = "**REDACTED**"
+
+    raw_registers = device.last_registers
+    raw_status_block = (
+        # Registers 0-3 are the serial number: leave them out.
+        {
+            "start_address": "0x4000",
+            "serial_registers": "redacted",
+            "registers_0x4004_onward": [f"{reg:04X}" for reg in raw_registers[4:]],
+        }
+        if raw_registers
+        else None
+    )
 
     return {
         "entry": {
@@ -41,10 +54,11 @@ async def async_get_config_entry_diagnostics(
                 CONF_SCAN_INTERVAL: entry.options.get(CONF_SCAN_INTERVAL),
             },
         },
-        "client": {
-            "connected": client.connected,
+        "device": {
+            "connected": device.connected,
             "host": "**REDACTED**",
             "port": entry.data[CONF_PORT],
+            "unit_id": entry.data.get(CONF_UNIT_ID, DEFAULT_UNIT_ID),
         },
         "coordinator": {
             "last_update_success": coordinator.last_update_success,
@@ -57,5 +71,6 @@ async def async_get_config_entry_diagnostics(
             "last_valid_current_limit": coordinator._last_valid_current_limit,
             "current_limit_fix_attempted": coordinator._current_limit_fix_attempted,
             "data": async_redact_data(dict(coordinator_data), _REDACT_RUNTIME),
+            "raw_status_block": raw_status_block,
         },
     }

@@ -8,6 +8,8 @@ This integration connects directly to a charger over the local network and polls
 
 **To pause charging while keeping the session alive**, set **Charging Current Limit** to **0 A**. The charger follows IEC 61851-1 minimum current behaviour and will not end the session the way a **Stop Charging** command does.
 
+On a real charger, setting the limit to 0 A (or anything below 6 A) while charging drops the charger to state B1 ("pending authorization"), not to state 5. The **Session State** sensor shows this as `paused_by_current` when Home Assistant has seen the vehicle charging since it was last idle. After a Home Assistant restart it shows `idle` until charging is seen again.
+
 **Stop Charging** ends the session on the charger side. Depending on vehicle and charger behaviour, **starting again may require a new start command** after a stop.
 
 ## Features
@@ -73,6 +75,30 @@ The integration does not currently support:
 - Firmware updates
 - Custom Home Assistant services beyond the entity services exposed by button, switch, and number entities
 
+## Requirements
+
+- Home Assistant **2026.9 or newer**. The integration talks to the charger through Home Assistant's built-in `modbus` integration, which owns and shares the Modbus TCP connection (`modbus.async_get_unit`).
+- No `modbus:` YAML configuration is needed. The built-in Modbus integration is loaded automatically as a dependency.
+
+## Charger setup (Modbus TCP)
+
+The charger answers Modbus TCP only after it has been switched to a local controller mode. Do this once, before adding the integration:
+
+1. Install the **TerraConfig** app (version 1.6 or newer) and connect to the charger.
+2. Open **Settings -> Load Balance**.
+3. Scroll to **Modbus**, enable it, and choose the **local controller** option with **Modbus TCP/IP**.
+4. Enter the communication settings (the IP address you will use in Home Assistant), save, and let the charger reboot.
+5. Connect the charger to your network with an Ethernet cable on its LAN (RJ45) port.
+
+Things to know:
+
+- Modbus TCP runs over the charger's **LAN port**. Charger Wi-Fi is not used for Modbus.
+- While Modbus TCP is active, the LAN port cannot also carry OCPP. A reported workaround is OCPP over Wi-Fi with Modbus over the LAN port.
+- A community forum user reported that Modbus TCP did not work on a charger variant without an LCD screen. This has not been confirmed.
+- The charger accepts **one** Modbus TCP session at a time. The ABB phone app can be used alongside the integration.
+
+Menu names may differ between TerraConfig versions. This section is based on the community forum thread for this integration and the ABB Modbus communication document v1.11.
+
 ## Installation
 
 ### HACS installation
@@ -86,7 +112,7 @@ The integration does not currently support:
 7. Open `Settings -> Devices & Services`.
 8. Click `Add Integration`.
 9. Search for `ABB Terra AC Modbus`.
-10. Enter the charger IP address or hostname and confirm the Modbus TCP port.
+10. Enter the charger IP address or hostname and confirm the Modbus TCP port and unit ID.
 
 ### Manual installation
 
@@ -97,7 +123,8 @@ The integration does not currently support:
 5. Search for `ABB Terra AC Modbus`.
 6. Enter the charger IP address or hostname.
 7. Confirm the Modbus TCP port. The default is `502`.
-8. Finish the setup.
+8. Confirm the Modbus unit ID. The default is `1`.
+9. Finish the setup.
 
 During setup, the integration tests the TCP connection and performs a small Modbus read before creating the config entry.
 
@@ -107,6 +134,7 @@ The setup dialog asks for:
 
 - `Host`: IP address or DNS name of the ABB Terra AC charger
 - `Port`: Modbus TCP port exposed by the charger, usually `502`
+- `Unit ID`: Modbus unit (slave) ID of the charger, usually `1`
 
 ## Configuration
 
@@ -116,8 +144,9 @@ You need:
 
 - The IP address or hostname of the charger
 - The Modbus TCP port, usually `502`
+- The Modbus unit ID, usually `1`
 
-The integration creates one config entry per charger and uses `host:port` as its unique identifier.
+The integration creates one config entry per charger and uses `host:port:unit_id` as its unique identifier.
 
 ### Configuration parameters
 
@@ -127,6 +156,8 @@ This integration currently supports the following user-configurable parameters t
   The IP address or hostname Home Assistant uses to reach the charger over the local network.
 - `port`
   The Modbus TCP port used for communication. In most installations this is `502`.
+- `unit_id`
+  The Modbus unit (slave) ID of the charger. In most installations this is `1`.
 
 **Options** (under the integration’s **Configure** menu): **polling interval** (`scan_interval`) from 5 to 300 seconds. This does not change the charger IP or port.
 
@@ -145,16 +176,18 @@ The integration uses Home Assistant's `DataUpdateCoordinator` with local polling
 
 Current update behavior:
 
-- Poll interval: every 15 seconds
-- Transport: Modbus TCP over the local network
+- Poll interval: every 15 seconds by default; configurable between 5 and 300 seconds in the integration options
+- Transport: Modbus TCP over the local network, through a connection shared via Home Assistant's `modbus` integration
 - Read strategy: one holding-register block read starting at address `16384`
 - Update scope: one charger per config entry
 
-If the charger becomes unreachable, entities become unavailable. When communication recovers, entities update automatically on the next successful poll.
+The charger counts Modbus communication as lost when nothing is read within its communication timeout (register `4106h`, 60 seconds by default). Keep the poll interval shorter than that timeout. If it is not, Home Assistant shows a repair warning.
+
+Failed polls (timeout or lost link) keep the previous values for up to 90 s after the last successful poll; an idle charger resets its network stack every 12–14 minutes and stays silent for 30–50 s. If it is still silent after that, entities become unavailable. When communication recovers, entities update automatically on the next successful poll.
 
 Known implementation details:
 
-- Charging state is derived from register `400Dh` high byte because the documented `400Ch` does not return a usable value on tested chargers.
+- Charging state is read from the high byte of register `400Dh`. The ABB Modbus document describes the charging state as a 32-bit value in `400Ch`-`400Dh` whose byte 1 holds the state (bits 6..0) and the reduced-current flag (bit 7); byte 1 is the high byte of `400Dh`.
 - The integration contains a one-time recovery workaround for known charger firmware issues where fallback limit or charging current limit may reset to an invalid value after an unexpected reboot.
 
 ## Removal
@@ -174,10 +207,11 @@ Removing the integration removes its entities and device from Home Assistant. It
 - This integration currently depends on manual setup. Automatic discovery is not implemented.
 - It requires network access from Home Assistant to the charger over Modbus TCP.
 - ABB Terra AC variants without an LCD display are not supported because this integration depends on Modbus TCP.
-- The charger appears to allow only one active Modbus TCP client session at a time.
+- The charger appears to allow only one active Modbus TCP client session at a time. Integrations inside Home Assistant that use the same host, port and settings share one connection, but external Modbus clients (for example a PLC or another Home Assistant instance) still compete for that single session.
 - Support is focused on ABB Terra AC chargers with compatible Modbus register behavior.
 - The integration assumes a single charger device per config entry.
 - Some charger states are derived from observed device behavior instead of documentation alone.
+- The *Charging at reduced current* diagnostic binary sensor (bit 7 of register `400Dh`) is disabled by default: on tested firmware 1.8.37 the bit was set in every charger state, also while charging at the commanded current.
 - Identity sensors are disabled by default because they are usually less relevant for day-to-day dashboards.
 - On tested setups, Modbus TCP is tied to the charger's Ethernet-side connection rather than native charger Wi-Fi.
 - Community reports suggest that Ethernet-to-Wi-Fi bridges or TCP/RS485 converters may work, but these setups are not officially tested by this integration.
@@ -214,15 +248,38 @@ Example dashboard cards:
 ## Troubleshooting
 
 - Verify that the charger is reachable on the network from the Home Assistant host.
-- Confirm that Modbus TCP is enabled and reachable on port `502` or the configured port.
-- If the charger refuses or drops Modbus connections, make sure no other Modbus client is already connected.
+- Confirm that Modbus TCP is enabled on the charger (see [Charger setup](#charger-setup-modbus-tcp)) and reachable on port `502` or the configured port.
+- If the charger refuses or drops Modbus connections, make sure no other Modbus client outside Home Assistant is already connected.
 - If you are trying to use charger Wi-Fi directly, review the charger communication setup first. Modbus TCP is documented and tested here as an Ethernet-side connection.
 - If you use a Wi-Fi bridge or TCP/RS485 converter, treat that setup as community-supported rather than officially validated by this project.
 - If setup fails with an invalid response, verify that the charger exposes the expected holding registers.
 - If entities show as unavailable, check charger connectivity and whether the charger still responds to Modbus requests.
 - If the charger IP address or Modbus port changed, use the integration reconfiguration flow in Home Assistant.
 - If current-limit values look wrong after a charger reboot, review the charger state and Home Assistant logs to see whether the firmware recovery workaround was applied.
+- To see what the charger reports, enable debug logging for `custom_components.abb_terra_ac`. A line with the raw registers `400Ch`-`400Fh`, `4022h`-`4023h` and the phase currents is logged whenever the state or limits change. The diagnostics download also contains the raw status block (serial number registers omitted).
+- If the error code sensor shows an error, see [Charger error codes](#charger-error-codes).
 - If serial number or firmware version sensors do not appear, enable them manually in the entity registry because they are disabled by default.
+
+## Charger error codes
+
+The **Error code** sensor (a diagnostic entity) shows the error reported by the charger in register `4008h`. The codes and their causes are taken from the Terra AC installation manual (troubleshooting table, IEC portfolio). If the charger reports several errors at once, the sensor state is the lowest error bit and the `active_errors` attribute lists all of them; `raw_code` holds the register value in hex, and `unknown_bits` appears if a bit without a documented meaning is set.
+
+| Code | Sensor state | Meaning | What to check |
+| --- | --- | --- | --- |
+| `0x0002` | `residual_current_detected` | Residual current (30 mA AC or 6 mA DC) in the charge circuit | De-energize the charger and contact the manufacturer's representative or a qualified electrician |
+| `0x0004` | `pe_missing_or_swap_neutral_phase` | Protective earth missing, or neutral and phase swapped | Check the PE conductor and the phase/neutral wiring |
+| `0x0008` | `over_voltage` | Input voltage too high | Check that the grid voltage is within specification |
+| `0x0010` | `under_voltage` | Input voltage too low | Check that the grid voltage is within specification |
+| `0x0020` | `over_current` | Overload on the vehicle side | Check the charge cable connection |
+| `0x0040` | `severe_over_current` | Severe overload on the vehicle side | Check the charge cable connection |
+| `0x0080` | `over_temperature` | Internal temperature too high (the charger reduces its output current by itself) | Check the ambient temperature and grid voltage; do not use the charger if the problem persists |
+| `0x0400` | `power_relay_fault` | Relay contact in the wrong state or damaged | Contact the manufacturer's representative or a qualified electrician |
+| `0x0800` | `internal_communication_failure` | The charger's circuit boards cannot communicate | Contact the manufacturer's representative or a qualified electrician |
+| `0x1000` | `e_lock_failure` | The charge connector could not be locked or unlocked | Check the charge cable connection |
+| `0x2000` | `missing_phase` | One or two phases are missing | Check the electrical connections |
+| `0x4000` | `modbus_communication_lost` | The charger lost Modbus communication | See below |
+
+For `modbus_communication_lost`, the manual's checklist (wiring, polarity, baud rate, parity) describes the RS485 link to a smart meter. For Modbus TCP, note that the charger treats the link as lost when nothing is read within the communication timeout (register `4106h`, default 60 s). The Modbus manual states that with a fallback limit configured (register `4109h`) the charger does not go into error mode when communication disappears.
 
 ## Project links
 

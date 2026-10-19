@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+
+if TYPE_CHECKING:
+    from . import AbbTerraAcDataUpdateCoordinator
 
 
 def abb_terra_ac_device_info_static(entry_id: str) -> dict[str, Any]:
@@ -19,7 +23,7 @@ def abb_terra_ac_device_info_static(entry_id: str) -> dict[str, Any]:
     }
 
 
-class AbbTerraAcEntity(CoordinatorEntity):
+class AbbTerraAcEntity(CoordinatorEntity["AbbTerraAcDataUpdateCoordinator"]):
     """Coordinator entity with device_info updated when firmware or identity changes."""
 
     _attr_has_entity_name = True
@@ -33,11 +37,11 @@ class AbbTerraAcEntity(CoordinatorEntity):
         self._config_entry_id = entry_id
 
     @property
-    def device_info(self) -> dict[str, Any]:
+    def device_info(self) -> DeviceInfo:
         """Device info including current firmware and serial from the latest poll."""
-        info = abb_terra_ac_device_info_static(self._config_entry_id).copy()
+        info = DeviceInfo(**abb_terra_ac_device_info_static(self._config_entry_id))  # type: ignore[typeddict-item]
         data = self.coordinator.data
         if data:
             info["sw_version"] = data.get("firmware_version")
             info["serial_number"] = data.get("serial_number")
-        return info
+        return info  # type: ignore[no-any-return]

@@ -7,11 +7,11 @@ from homeassistant.components.switch import SwitchEntity, SwitchDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from pymodbus.client import AsyncModbusTcpClient
 
 from . import AbbTerraAcDataUpdateCoordinator, AbbTerraAcRuntimeData
+from .api import AbbTerraAcDevice
 from .entity import AbbTerraAcEntity
-from .modbus_write import async_write_register
+from .errors import async_run_device_action
 
 PARALLEL_UPDATES = 0
 
@@ -24,10 +24,10 @@ async def async_setup_entry(
     """Set up switches from a config entry."""
     runtime_data: AbbTerraAcRuntimeData = entry.runtime_data
     coordinator = runtime_data.coordinator
-    client = runtime_data.client
+    device = runtime_data.device
 
     switches = [
-        AbbTerraAcLockSwitch(coordinator, entry, client),
+        AbbTerraAcLockSwitch(coordinator, entry, device),
     ]
     async_add_entities(switches, True)
 
@@ -39,10 +39,10 @@ class AbbTerraAcBaseSwitch(AbbTerraAcEntity, SwitchEntity):
         self,
         coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
-        client: AsyncModbusTcpClient
+        device: AbbTerraAcDevice
     ) -> None:
         AbbTerraAcEntity.__init__(self, coordinator, entry.entry_id)
-        self.client = client
+        self.device = device
 
 
 class AbbTerraAcLockSwitch(AbbTerraAcBaseSwitch):
@@ -52,9 +52,9 @@ class AbbTerraAcLockSwitch(AbbTerraAcBaseSwitch):
         self,
         coordinator: AbbTerraAcDataUpdateCoordinator,
         entry: ConfigEntry,
-        client: AsyncModbusTcpClient
+        device: AbbTerraAcDevice
     ) -> None:
-        super().__init__(coordinator, entry, client)
+        super().__init__(coordinator, entry, device)
         self._attr_translation_key = "lock"
         self._attr_unique_id = f"{self._config_entry_id}_lock"
         # HA ``SwitchDeviceClass`` has no ``lock``; use generic switch for cable lock.
@@ -73,20 +73,10 @@ class AbbTerraAcLockSwitch(AbbTerraAcBaseSwitch):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Lock cable (register 4103h, value 1)."""
-        await async_write_register(
-            self.client,
-            16643,
-            1,
-            lock=self.coordinator.modbus_lock,
-        )
+        await async_run_device_action(self.device.async_set_cable_lock(True))
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Unlock cable (register 4103h, value 0)."""
-        await async_write_register(
-            self.client,
-            16643,
-            0,
-            lock=self.coordinator.modbus_lock,
-        )
+        await async_run_device_action(self.device.async_set_cable_lock(False))
         await self.coordinator.async_request_refresh()

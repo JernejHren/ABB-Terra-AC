@@ -29,7 +29,7 @@ class AbbTerraAcOptionsFlow(config_entries.OptionsFlow):
             self.config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         )
         schema = self.add_suggested_values_to_schema(
-            vol.Schema(
+            vol.Schema(  # type: ignore[arg-type]
                 {
                     vol.Required(CONF_SCAN_INTERVAL): vol.All(
                         vol.Coerce(int),

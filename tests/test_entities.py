@@ -1,11 +1,12 @@
 """Entity platform tests (sensor / switch / number) for ``abb_terra_ac``."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from modbus_connection import ModbusConnectionError, ModbusExceptionError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.abb_terra_ac.api import AbbTerraAcDevice
 from custom_components.abb_terra_ac.const import DOMAIN, ERROR_CODES, SOCKET_LOCK_STATES
 from custom_components.abb_terra_ac.session_state import LastCommand
 from tests.const import mock_config_entry_kwargs
@@ -14,21 +15,22 @@ from custom_components.abb_terra_ac.button import AbbTerraAcStartChargingButton
 from homeassistant.components.number import ATTR_VALUE, SERVICE_SET_VALUE
 from homeassistant.components.button import DOMAIN as BUTTON_DOMAIN
 from homeassistant.components.button import SERVICE_PRESS
-from homeassistant.const import ATTR_ENTITY_ID, CONF_HOST, CONF_PORT
+from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from tests.helpers.modbus import (
-    create_mock_modbus_client,
+    create_mock_modbus_unit,
     make_holding_registers_37,
 )
 
-_INIT_MODBUS = "custom_components.abb_terra_ac.AsyncModbusTcpClient"
+_INIT_UNIT = "custom_components.abb_terra_ac.async_get_unit"
 
 _EXPECTED_ENTITY_SUFFIXES = frozenset(
     {
+        "charging_state",
         "charging_state_raw",
         "session_state",
         "last_command",
@@ -51,6 +53,9 @@ _EXPECTED_ENTITY_SUFFIXES = frozenset(
         "lock",
         "current_limit",
         "fallback_limit",
+        "user_settable_max_current",
+        "communication_timeout",
+        "reduced_current",
     }
 )
 
@@ -75,14 +80,6 @@ def _write_registers_address_values(call) -> tuple[int, list[int]]:
     if call.args and len(call.args) >= 2:
         return int(call.args[0]), list(call.args[1])
     return int(call.kwargs["address"]), list(call.kwargs["values"])
-
-
-def _read_result_with_registers(registers: list[int]) -> MagicMock:
-    """Build one mocked Modbus read result object."""
-    result = MagicMock()
-    result.isError.return_value = False
-    result.registers = list(registers)
-    return result
 
 
 def _entity_id_for(
@@ -116,13 +113,13 @@ async def _async_setup_with_registers(
     """Set up config entry with mocked Modbus returning ``registers``."""
     entry = MockConfigEntry(**mock_config_entry_kwargs())
     entry.add_to_hass(hass)
-    mock_client = create_mock_modbus_client(
+    unit = create_mock_modbus_unit(
         connect=True, read_error=False, registers=registers
     )
-    with patch(_INIT_MODBUS, return_value=mock_client):
+    with patch(_INIT_UNIT, return_value=unit):
         assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    return entry, mock_client
+    return entry, unit
 
 
 async def test_entity_registry_matches_integration(hass: HomeAssistant) -> None:
@@ -142,11 +139,11 @@ async def test_entity_registry_matches_integration(hass: HomeAssistant) -> None:
         assert ent.platform == DOMAIN, suffix
         if suffix in ("start_charging", "stop_charging"):
             assert ent.domain == "button", suffix
-        elif suffix == "is_charging":
+        elif suffix in ("is_charging", "reduced_current"):
             assert ent.domain == "binary_sensor", suffix
         elif suffix == "lock":
             assert ent.domain == "switch", suffix
-        elif suffix in ("current_limit", "fallback_limit"):
+        elif suffix in ("current_limit", "fallback_limit", "communication_timeout"):
             assert ent.domain == "number", suffix
         else:
             assert ent.domain == "sensor", suffix
@@ -191,8 +188,12 @@ async def test_entities_use_expected_entity_categories(hass: HomeAssistant) -> N
     assert registry.async_get(_entity_id_for(hass, entry.entry_id, "error_code")).entity_category == "diagnostic"
     assert registry.async_get(_entity_id_for(hass, entry.entry_id, "charging_state_raw")).entity_category == "diagnostic"
     assert registry.async_get(_entity_id_for(hass, entry.entry_id, "last_command")).entity_category == "diagnostic"
-    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "current_limit")).entity_category == "config"
-    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "fallback_limit")).entity_category == "config"
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "user_settable_max_current")).entity_category == "diagnostic"
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "reduced_current")).entity_category == "diagnostic"
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "communication_timeout")).entity_category == "config"
+    # Sliders stay regular controls on purpose (see CHANGELOG 0.3.0).
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "current_limit")).entity_category is None
+    assert registry.async_get(_entity_id_for(hass, entry.entry_id, "fallback_limit")).entity_category is None
 
 
 async def test_entities_use_expected_device_classes(hass: HomeAssistant) -> None:
@@ -272,7 +273,7 @@ async def test_sensor_states_reflect_registers(hass: HomeAssistant) -> None:
 async def test_button_start_charging_writes_modbus(hass: HomeAssistant) -> None:
     """Start charging button issues Modbus write to register 4105h (value 0)."""
     registers = make_holding_registers_37(charging_state_nibble=0)
-    entry, mock_client = await _async_setup_with_registers(hass, registers)
+    entry, unit = await _async_setup_with_registers(hass, registers)
 
     entity_id = _entity_id_for(hass, entry.entry_id, "start_charging")
 
@@ -284,10 +285,10 @@ async def test_button_start_charging_writes_modbus(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
 
-    assert mock_client.write_register.await_count >= 1
+    assert unit.write_register.await_count >= 1
     match = [
         _write_register_address_value(c)
-        for c in mock_client.write_register.await_args_list
+        for c in unit.write_register.await_args_list
         if _write_register_address_value(c) == (16645, 0)
     ]
     assert match
@@ -296,7 +297,7 @@ async def test_button_start_charging_writes_modbus(hass: HomeAssistant) -> None:
 async def test_button_stop_charging_writes_modbus(hass: HomeAssistant) -> None:
     """Stop charging button issues Modbus write to register 4105h (value 1)."""
     registers = make_holding_registers_37(charging_state_nibble=4)
-    entry, mock_client = await _async_setup_with_registers(hass, registers)
+    entry, unit = await _async_setup_with_registers(hass, registers)
 
     entity_id = _entity_id_for(hass, entry.entry_id, "stop_charging")
 
@@ -308,10 +309,10 @@ async def test_button_stop_charging_writes_modbus(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
 
-    assert mock_client.write_register.await_count >= 1
+    assert unit.write_register.await_count >= 1
     match = [
         _write_register_address_value(c)
-        for c in mock_client.write_register.await_args_list
+        for c in unit.write_register.await_args_list
         if _write_register_address_value(c) == (16645, 1)
     ]
     assert match
@@ -320,7 +321,7 @@ async def test_button_stop_charging_writes_modbus(hass: HomeAssistant) -> None:
 async def test_switch_lock_turn_on_and_turn_off_write_modbus(hass: HomeAssistant) -> None:
     """Cable lock switch maps on/off to the expected Modbus register."""
     registers = make_holding_registers_37(socket_lock_raw_32=1)
-    entry, mock_client = await _async_setup_with_registers(hass, registers)
+    entry, unit = await _async_setup_with_registers(hass, registers)
 
     entity_id = _entity_id_for(hass, entry.entry_id, "lock")
     assert hass.states.get(entity_id).state == "off"
@@ -341,7 +342,7 @@ async def test_switch_lock_turn_on_and_turn_off_write_modbus(hass: HomeAssistant
 
     writes = {
         _write_register_address_value(c)
-        for c in mock_client.write_register.await_args_list
+        for c in unit.write_register.await_args_list
     }
     assert (16643, 1) in writes
     assert (16643, 0) in writes
@@ -353,7 +354,7 @@ async def test_number_charging_limit_set_value_writes_registers(hass: HomeAssist
         user_max_amps=32.0,
         charging_current_modbus_amps=16.0,
     )
-    entry, mock_client = await _async_setup_with_registers(hass, registers)
+    entry, unit = await _async_setup_with_registers(hass, registers)
 
     entity_id = _entity_id_for(hass, entry.entry_id, "current_limit")
 
@@ -365,9 +366,9 @@ async def test_number_charging_limit_set_value_writes_registers(hass: HomeAssist
     )
     await hass.async_block_till_done()
 
-    assert mock_client.write_registers.await_count >= 1
+    assert unit.write_registers.await_count >= 1
     found = False
-    for c in mock_client.write_registers.await_args_list:
+    for c in unit.write_registers.await_args_list:
         addr, vals = _write_registers_address_values(c)
         if addr == 16640 and vals == [0, 15000]:
             found = True
@@ -378,7 +379,7 @@ async def test_number_charging_limit_set_value_writes_registers(hass: HomeAssist
 async def test_number_fallback_set_value_writes_register(hass: HomeAssistant) -> None:
     """Fallback limit number writes single register 4111h."""
     registers = make_holding_registers_37(user_max_amps=32.0, fallback_limit=6)
-    entry, mock_client = await _async_setup_with_registers(hass, registers)
+    entry, unit = await _async_setup_with_registers(hass, registers)
 
     entity_id = _entity_id_for(hass, entry.entry_id, "fallback_limit")
 
@@ -390,10 +391,10 @@ async def test_number_fallback_set_value_writes_register(hass: HomeAssistant) ->
     )
     await hass.async_block_till_done()
 
-    assert mock_client.write_register.await_count >= 1
+    assert unit.write_register.await_count >= 1
     match = [
         _write_register_address_value(c)
-        for c in mock_client.write_register.await_args_list
+        for c in unit.write_register.await_args_list
         if _write_register_address_value(c) == (16649, 9)
     ]
     assert match
@@ -417,7 +418,7 @@ async def test_disabled_identity_sensors_can_be_enabled_and_updated(
     """Default-disabled serial/firmware sensors can be enabled and refreshed."""
     initial_registers = _with_identity_registers(make_holding_registers_37(), firmware_patch_bcd=3)
     updated_registers = _with_identity_registers(make_holding_registers_37(), firmware_patch_bcd=4)
-    entry, mock_client = await _async_setup_with_registers(hass, initial_registers)
+    entry, unit = await _async_setup_with_registers(hass, initial_registers)
 
     serial_id = _entity_id_for(hass, entry.entry_id, "serial_number")
     firmware_id = _entity_id_for(hass, entry.entry_id, "firmware_version")
@@ -435,15 +436,15 @@ async def test_disabled_identity_sensors_can_be_enabled_and_updated(
     assert hass.states.get(serial_id) is None
     assert hass.states.get(firmware_id) is None
 
-    with patch(_INIT_MODBUS, return_value=mock_client):
+    with patch(_INIT_UNIT, return_value=unit):
         assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
 
     assert hass.states.get(serial_id).state == "TACW11-42-1224-G3456"
     assert hass.states.get(firmware_id).state == "v1.2.3"
 
-    mock_client.read_holding_registers.return_value.registers = updated_registers
-    with patch(_INIT_MODBUS, return_value=mock_client):
+    unit.read_holding_registers.return_value = updated_registers
+    with patch(_INIT_UNIT, return_value=unit):
         assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
 
@@ -461,13 +462,13 @@ async def test_coordinator_restores_invalid_fallback_limit(hass: HomeAssistant) 
         user_max_amps=16.0,
         fallback_limit=32,
     )
-    entry, mock_client = await _async_setup_with_registers(hass, valid_registers)
+    entry, unit = await _async_setup_with_registers(hass, valid_registers)
 
     coordinator = entry.runtime_data.coordinator
     assert coordinator.data["fallback_limit"] == 10
 
-    mock_client.read_holding_registers.side_effect = [
-        _read_result_with_registers(invalid_registers),
+    unit.read_holding_registers.side_effect = [
+        list(invalid_registers),
     ]
     updated_data = await coordinator._async_update_data()
     coordinator.async_set_updated_data(updated_data)
@@ -475,7 +476,7 @@ async def test_coordinator_restores_invalid_fallback_limit(hass: HomeAssistant) 
 
     writes = {
         _write_register_address_value(c)
-        for c in mock_client.write_register.await_args_list
+        for c in unit.write_register.await_args_list
     }
     assert (16649, 10) in writes
     assert coordinator.data["fallback_limit"] == 10
@@ -491,20 +492,20 @@ async def test_coordinator_restores_invalid_current_limit(hass: HomeAssistant) -
         user_max_amps=16.0,
         charging_current_modbus_amps=32.0,
     )
-    entry, mock_client = await _async_setup_with_registers(hass, valid_registers)
+    entry, unit = await _async_setup_with_registers(hass, valid_registers)
 
     coordinator = entry.runtime_data.coordinator
     assert coordinator.data["charging_current_limit_modbus"] == 12
 
-    mock_client.read_holding_registers.side_effect = [
-        _read_result_with_registers(invalid_registers),
+    unit.read_holding_registers.side_effect = [
+        list(invalid_registers),
     ]
     updated_data = await coordinator._async_update_data()
     coordinator.async_set_updated_data(updated_data)
     await hass.async_block_till_done()
 
     found = False
-    for c in mock_client.write_registers.await_args_list:
+    for c in unit.write_registers.await_args_list:
         addr, vals = _write_registers_address_values(c)
         if addr == 16640 and vals == [0, 12000]:
             found = True
@@ -512,18 +513,22 @@ async def test_coordinator_restores_invalid_current_limit(hass: HomeAssistant) -
     assert found
 
 
-async def test_button_write_exception_raises_translated_error() -> None:
-    """Entity actions should raise translated HA errors on connection failure."""
-    entry = MockConfigEntry(**mock_config_entry_kwargs())
+def _coordinator_stub(data: dict) -> MagicMock:
     coordinator = MagicMock()
-    coordinator.data = {"charging_state": 0}
+    coordinator.data = data
     coordinator.last_command = "none"
-    coordinator.modbus_lock = asyncio.Lock()
     coordinator.async_request_refresh = AsyncMock()
-    client = MagicMock()
-    client.write_register = AsyncMock(side_effect=RuntimeError("boom"))
+    return coordinator
 
-    entity = AbbTerraAcStartChargingButton(coordinator, entry, client)
+
+async def test_button_write_exception_raises_translated_error() -> None:
+    """Unreachable charger raises the translated ``charger_unavailable`` error."""
+    entry = MockConfigEntry(**mock_config_entry_kwargs())
+    coordinator = _coordinator_stub({"charging_state": 0})
+    device = MagicMock(spec=AbbTerraAcDevice)
+    device.async_start_session = AsyncMock(side_effect=ModbusConnectionError("down"))
+
+    entity = AbbTerraAcStartChargingButton(coordinator, entry, device)
 
     with pytest.raises(HomeAssistantError) as err:
         await entity.async_press()
@@ -532,19 +537,29 @@ async def test_button_write_exception_raises_translated_error() -> None:
     assert err.value.translation_key == "charger_unavailable"
 
 
-async def test_number_write_error_result_raises_translated_error() -> None:
-    """Modbus error responses should raise translated HA errors."""
+async def test_button_unexpected_exception_raises_translated_error() -> None:
+    """Any non-Modbus failure is reported as the charger being unavailable."""
     entry = MockConfigEntry(**mock_config_entry_kwargs())
-    coordinator = MagicMock()
-    coordinator.data = {"fallback_limit": 0, "user_settable_max_current": 16}
-    coordinator.modbus_lock = asyncio.Lock()
-    coordinator.async_request_refresh = AsyncMock()
-    client = MagicMock()
-    write_result = MagicMock()
-    write_result.isError.return_value = True
-    client.write_register = AsyncMock(return_value=write_result)
+    coordinator = _coordinator_stub({"charging_state": 0})
+    device = MagicMock(spec=AbbTerraAcDevice)
+    device.async_start_session = AsyncMock(side_effect=RuntimeError("boom"))
 
-    entity = AbbTerraAcFallbackLimit(coordinator, entry, client)
+    entity = AbbTerraAcStartChargingButton(coordinator, entry, device)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await entity.async_press()
+
+    assert err.value.translation_key == "charger_unavailable"
+
+
+async def test_number_write_error_result_raises_translated_error() -> None:
+    """A Modbus exception response raises the translated ``write_failed`` error."""
+    entry = MockConfigEntry(**mock_config_entry_kwargs())
+    coordinator = _coordinator_stub({"fallback_limit": 0, "user_settable_max_current": 16})
+    device = MagicMock(spec=AbbTerraAcDevice)
+    device.async_set_fallback_limit = AsyncMock(side_effect=ModbusExceptionError(4))
+
+    entity = AbbTerraAcFallbackLimit(coordinator, entry, device)
 
     with pytest.raises(HomeAssistantError) as err:
         await entity.async_set_native_value(8)

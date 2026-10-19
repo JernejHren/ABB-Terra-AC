@@ -1,26 +1,41 @@
 """Config flow tests for the ``abb_terra_ac`` custom integration."""
 
-import asyncio
 from unittest.mock import patch
 
 import pytest
+from modbus_connection import ModbusTimeoutError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from pymodbus.exceptions import ModbusIOException
 
 from custom_components.abb_terra_ac.const import (
     CONF_SCAN_INTERVAL,
+    CONF_UNIT_ID,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.data_entry_flow import FlowResultType
 
 from tests.const import mock_config_entry_kwargs
-from tests.helpers.modbus import create_mock_modbus_client
+from tests.helpers.modbus import create_mock_modbus_unit, temporary_unit_factory
 
-_FLOW_MODBUS = "custom_components.abb_terra_ac.config_flow.AsyncModbusTcpClient"
+_FLOW_UNIT = "custom_components.abb_terra_ac.config_flow.async_get_temporary_unit"
+_SETUP_ENTRY = "custom_components.abb_terra_ac.async_setup_entry"
+
+
+def _patch_unit(unit):
+    """Patch the config flow's temporary unit so it yields ``unit``."""
+    return patch(_FLOW_UNIT, new=temporary_unit_factory(unit))
+
+
+async def _start_user_flow(hass: HomeAssistant):
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert result["type"] is FlowResultType.FORM
+    return result
 
 
 async def test_user_form(hass: HomeAssistant) -> None:
@@ -47,14 +62,10 @@ async def test_connection_errors(
     expected_error: str,
 ) -> None:
     """Map Modbus outcomes to form errors."""
-    mock_client = create_mock_modbus_client(connect=connect, read_error=read_error)
+    unit = create_mock_modbus_unit(connect=connect, read_error=read_error)
+    result = await _start_user_flow(hass)
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    assert result["type"] is FlowResultType.FORM
-
-    with patch(_FLOW_MODBUS, return_value=mock_client):
+    with _patch_unit(unit):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
@@ -64,22 +75,27 @@ async def test_connection_errors(
     assert result["errors"]["base"] == expected_error
 
 
+async def test_connection_conflict_error(hass: HomeAssistant) -> None:
+    """A shared connection with different link settings gets its own form error."""
+    result = await _start_user_flow(hass)
+
+    with patch(_FLOW_UNIT, side_effect=HomeAssistantError("different link settings")):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"]["base"] == "connection_conflict"
+
+
 async def test_unexpected_error(hass: HomeAssistant) -> None:
     """Unexpected exception becomes base=unknown."""
-    mock_client = create_mock_modbus_client(connect=True, read_error=False)
+    unit = create_mock_modbus_unit(connect=True, read_error=False)
+    unit.read_holding_registers.side_effect = RuntimeError("boom")
+    result = await _start_user_flow(hass)
 
-    async def _broken_read(*args, **kwargs):
-        msg = "boom"
-        raise RuntimeError(msg)
-
-    mock_client.read_holding_registers = _broken_read
-
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    assert result["type"] is FlowResultType.FORM
-
-    with patch(_FLOW_MODBUS, return_value=mock_client):
+    with _patch_unit(unit):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
@@ -89,69 +105,16 @@ async def test_unexpected_error(hass: HomeAssistant) -> None:
     assert result["errors"]["base"] == "unknown"
 
 
-async def test_connect_timeout_maps_to_timeout_error(hass: HomeAssistant) -> None:
-    """Timeout while opening the TCP connection becomes base=timeout."""
-    mock_client = create_mock_modbus_client(connect=True, read_error=False)
-
-    async def _timeout_connect():
-        raise asyncio.TimeoutError
-
-    mock_client.connect.side_effect = _timeout_connect
-
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    assert result["type"] is FlowResultType.FORM
-
-    with patch(_FLOW_MODBUS, return_value=mock_client):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
-        )
-
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"]["base"] == "timeout"
-
-
-async def test_read_timeout_maps_to_timeout_error(hass: HomeAssistant) -> None:
-    """Timeout during the probe read becomes base=timeout."""
-    mock_client = create_mock_modbus_client(connect=True, read_error=False)
-
-    async def _timeout_read(*args, **kwargs):
-        raise asyncio.TimeoutError
-
-    mock_client.read_holding_registers.side_effect = _timeout_read
-
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    assert result["type"] is FlowResultType.FORM
-
-    with patch(_FLOW_MODBUS, return_value=mock_client):
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
-        )
-
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"]["base"] == "timeout"
-
-
-async def test_read_modbus_io_exception_maps_to_timeout_error(
-    hass: HomeAssistant,
+@pytest.mark.parametrize("error", [ModbusTimeoutError("timed out"), TimeoutError()])
+async def test_read_timeout_maps_to_timeout_error(
+    hass: HomeAssistant, error: Exception
 ) -> None:
-    """Pymodbus read cancellations should be surfaced as timeouts."""
-    mock_client = create_mock_modbus_client(connect=True, read_error=False)
-    mock_client.read_holding_registers.side_effect = ModbusIOException(
-        "Request cancelled outside pymodbus."
-    )
+    """Timeout during the probe read becomes base=timeout."""
+    unit = create_mock_modbus_unit(connect=True, read_error=False)
+    unit.read_holding_registers.side_effect = error
+    result = await _start_user_flow(hass)
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    assert result["type"] is FlowResultType.FORM
-
-    with patch(_FLOW_MODBUS, return_value=mock_client):
+    with _patch_unit(unit):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
@@ -162,15 +125,11 @@ async def test_read_modbus_io_exception_maps_to_timeout_error(
 
 
 async def test_successful_flow(hass: HomeAssistant) -> None:
-    """Successful Modbus probe yields a config entry."""
-    mock_client = create_mock_modbus_client(connect=True, read_error=False)
+    """Successful Modbus probe yields a config entry (unit ID defaults to 1)."""
+    unit = create_mock_modbus_unit(connect=True, read_error=False)
+    result = await _start_user_flow(hass)
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    assert result["type"] is FlowResultType.FORM
-
-    with patch(_FLOW_MODBUS, return_value=mock_client):
+    with _patch_unit(unit), patch(_SETUP_ENTRY, return_value=True):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
@@ -178,29 +137,44 @@ async def test_successful_flow(hass: HomeAssistant) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "ABB Terra AC (192.168.1.50)"
-    assert result["data"] == {CONF_HOST: "192.168.1.50", CONF_PORT: 502}
+    assert result["data"] == {
+        CONF_HOST: "192.168.1.50",
+        CONF_PORT: 502,
+        CONF_UNIT_ID: 1,
+    }
     entries = hass.config_entries.async_entries(DOMAIN)
     assert len(entries) == 1
+    assert entries[0].version == 4
     assert entries[0].options[CONF_SCAN_INTERVAL] == DEFAULT_SCAN_INTERVAL
+    unit.require_timeout.assert_called_once()
+    unit.read_holding_registers.assert_awaited_once_with(16384, 1)
+
+
+async def test_custom_unit_id_is_stored(hass: HomeAssistant) -> None:
+    """A non-default Modbus unit ID is kept in the config entry data."""
+    unit = create_mock_modbus_unit(connect=True, read_error=False)
+    result = await _start_user_flow(hass)
+
+    with _patch_unit(unit), patch(_SETUP_ENTRY, return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502, CONF_UNIT_ID: 7},
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_UNIT_ID] == 7
 
 
 async def test_already_configured(hass: HomeAssistant) -> None:
-    """Abort when unique_id host:port is already registered."""
+    """Abort when unique_id host:port:unit_id is already registered."""
     MockConfigEntry(
-        domain=DOMAIN,
-        version=2,
-        unique_id="192.168.1.50:502",
-        data={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
-        options={CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL},
+        **mock_config_entry_kwargs(),
     ).add_to_hass(hass)
 
-    mock_client = create_mock_modbus_client(connect=True, read_error=False)
+    unit = create_mock_modbus_unit(connect=True, read_error=False)
+    result = await _start_user_flow(hass)
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-
-    with patch(_FLOW_MODBUS, return_value=mock_client):
+    with _patch_unit(unit):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
@@ -210,19 +184,38 @@ async def test_already_configured(hass: HomeAssistant) -> None:
     assert result["reason"] == "already_configured"
 
 
-async def test_reconfigure_updates_existing_entry(hass: HomeAssistant) -> None:
-    """Reconfigure should update host/port, title, and unique_id."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        version=2,
-        unique_id="192.168.1.50:502",
+async def test_same_address_with_other_unit_id_is_a_new_charger(
+    hass: HomeAssistant,
+) -> None:
+    """Two chargers behind one gateway address differ by unit ID."""
+    MockConfigEntry(**mock_config_entry_kwargs()).add_to_hass(hass)
+
+    unit = create_mock_modbus_unit(connect=True, read_error=False)
+    result = await _start_user_flow(hass)
+
+    with _patch_unit(unit), patch(_SETUP_ENTRY, return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_HOST: "192.168.1.50", CONF_PORT: 502, CONF_UNIT_ID: 2},
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == "192.168.1.50:502:2"
+
+
+def _reconfigure_entry() -> MockConfigEntry:
+    return MockConfigEntry(
+        **mock_config_entry_kwargs(),
         title="ABB Terra AC (192.168.1.50)",
-        data={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
-        options={CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL},
     )
+
+
+async def test_reconfigure_updates_existing_entry(hass: HomeAssistant) -> None:
+    """Reconfigure should update host/port/unit ID, title, and unique_id."""
+    entry = _reconfigure_entry()
     entry.add_to_hass(hass)
 
-    mock_client = create_mock_modbus_client(connect=True, read_error=False)
+    unit = create_mock_modbus_unit(connect=True, read_error=False)
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN,
@@ -235,34 +228,31 @@ async def test_reconfigure_updates_existing_entry(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
 
-    with patch(_FLOW_MODBUS, return_value=mock_client):
+    with _patch_unit(unit), patch(_SETUP_ENTRY, return_value=True):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={CONF_HOST: "192.168.1.60", CONF_PORT: 1502},
+            user_input={CONF_HOST: "192.168.1.60", CONF_PORT: 1502, CONF_UNIT_ID: 2},
         )
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
-    assert entry.data == {CONF_HOST: "192.168.1.60", CONF_PORT: 1502}
+    assert entry.data == {
+        CONF_HOST: "192.168.1.60",
+        CONF_PORT: 1502,
+        CONF_UNIT_ID: 2,
+    }
     assert entry.title == "ABB Terra AC (192.168.1.60)"
-    assert entry.unique_id == "192.168.1.60:1502"
+    assert entry.unique_id == "192.168.1.60:1502:2"
 
 
 async def test_reconfigure_keeps_reconfigure_step_on_validation_error(
     hass: HomeAssistant,
 ) -> None:
     """Reconfigure errors should keep the flow on the reconfigure step."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        version=2,
-        unique_id="192.168.1.50:502",
-        title="ABB Terra AC (192.168.1.50)",
-        data={CONF_HOST: "192.168.1.50", CONF_PORT: 502},
-        options={CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL},
-    )
+    entry = _reconfigure_entry()
     entry.add_to_hass(hass)
 
-    mock_client = create_mock_modbus_client(connect=False, read_error=False)
+    unit = create_mock_modbus_unit(connect=False, read_error=False)
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN,
@@ -272,7 +262,7 @@ async def test_reconfigure_keeps_reconfigure_step_on_validation_error(
         },
     )
 
-    with patch(_FLOW_MODBUS, return_value=mock_client):
+    with _patch_unit(unit):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={CONF_HOST: "192.168.1.60", CONF_PORT: 1502},

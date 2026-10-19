@@ -13,7 +13,7 @@ The sensor uses SensorStateClass.TOTAL + last_reset. The reset detection must:
 """
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -33,8 +33,7 @@ def _make_sensor(initial_energy: float = 0.0) -> AbbTerraAcEnergyDeliveredSensor
 
     sensor = AbbTerraAcEnergyDeliveredSensor(coordinator, entry)
     # Simulate the first coordinator update to seed _last_energy_value
-    with patch.object(sensor, "_attr_native_value", None, create=True):
-        sensor._last_energy_value = initial_energy
+    sensor._last_energy_value = initial_energy
     return sensor
 
 

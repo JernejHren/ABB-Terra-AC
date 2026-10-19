@@ -1,26 +1,34 @@
 """Config flow for ABB Terra AC."""
 from __future__ import annotations
 
-import asyncio
 import logging
 
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.components.modbus import async_get_temporary_unit
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow
-from pymodbus.client import AsyncModbusTcpClient
-from pymodbus.exceptions import ConnectionException, ModbusIOException
+from homeassistant.exceptions import HomeAssistantError
+from modbus_connection import (
+    ModbusConnectionError,
+    ModbusError,
+    ModbusTcpParams,
+    ModbusTimeoutError,
+)
 
+from .api import AbbTerraAcDevice
 from .const import (
     CONF_SCAN_INTERVAL,
+    CONF_UNIT_ID,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_UNIT_ID,
     DOMAIN,
     MODBUS_READ_TIMEOUT,
+    build_unique_id,
 )
-from .modbus import async_close_client, async_modbus_call
 from .options_flow import AbbTerraAcOptionsFlow
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,7 +37,7 @@ _LOGGER = logging.getLogger(__name__)
 class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for ABB Terra AC."""
 
-    VERSION = 2
+    VERSION = 4
 
     @staticmethod
     @callback
@@ -45,6 +53,9 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return vol.Schema({
             vol.Required(CONF_HOST): str,
             vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
+            vol.Optional(CONF_UNIT_ID, default=DEFAULT_UNIT_ID): vol.All(
+                int, vol.Range(min=1, max=247)
+            ),
         })
 
     def _show_form(
@@ -61,46 +72,46 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             suggested_values = {
                 CONF_HOST: entry.data[CONF_HOST],
                 CONF_PORT: entry.data[CONF_PORT],
+                CONF_UNIT_ID: entry.data.get(CONF_UNIT_ID, DEFAULT_UNIT_ID),
             }
 
         return self.async_show_form(
             step_id=step_id,
             data_schema=self.add_suggested_values_to_schema(
-                self._data_schema(),
+                self._data_schema(),  # type: ignore[arg-type]
                 suggested_values,
             ),
             errors=errors or {},
         )
 
     async def _async_validate_input(self, user_input: dict[str, int | str]) -> None:
-        """Validate connection details by probing the charger."""
-        host = str(user_input[CONF_HOST])
-        port = int(user_input[CONF_PORT])
-        client = AsyncModbusTcpClient(
-            host=host,
-            port=port,
-            timeout=MODBUS_READ_TIMEOUT,
+        """Validate connection details by probing the charger.
+
+        Raises ``ValueError`` carrying a form error key, or lets a Modbus
+        timeout propagate so the caller can map it to ``timeout``.
+        """
+        params = ModbusTcpParams(
+            host=str(user_input[CONF_HOST]),
+            port=int(user_input[CONF_PORT]),
         )
+        unit_id = int(user_input.get(CONF_UNIT_ID, DEFAULT_UNIT_ID))
 
         try:
-            result = await async_modbus_call(
-                client,
-                "read_holding_registers",
-                retry=False,
-                address=16384,
-                count=1,
-            )
-            if result.isError():
-                msg = "invalid_response"
-                raise ValueError(msg)
-        except ConnectionException as err:
-            if str(err) == "connect() returned False":
-                msg = "cannot_connect"
-                raise ValueError(msg) from err
+            async with async_get_temporary_unit(self.hass, params, unit_id) as unit:
+                unit.require_timeout(MODBUS_READ_TIMEOUT)
+                await AbbTerraAcDevice(unit).async_probe()
+        except ModbusTimeoutError:
             raise
-        finally:
-            if client.connected:
-                await async_close_client(client)
+        except HomeAssistantError as err:
+            # The same charger is already in use with different link settings.
+            msg = "connection_conflict"
+            raise ValueError(msg) from err
+        except ModbusConnectionError as err:
+            msg = "cannot_connect"
+            raise ValueError(msg) from err
+        except ModbusError as err:
+            msg = "invalid_response"
+            raise ValueError(msg) from err
 
     async def async_step_reconfigure(
         self, user_input: dict[str, str | int] | None = None
@@ -112,7 +123,9 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         host = user_input[CONF_HOST]
         port = user_input[CONF_PORT]
-        new_unique_id = f"{host}:{port}"
+        new_unique_id = build_unique_id(
+            host, port, user_input.get(CONF_UNIT_ID, DEFAULT_UNIT_ID)
+        )
 
         try:
             await self._async_validate_input(user_input)
@@ -133,7 +146,7 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         except ValueError as err:
             errors["base"] = str(err)
-        except (asyncio.TimeoutError, ModbusIOException):
+        except TimeoutError:
             errors["base"] = "timeout"
         except AbortFlow:
             raise
@@ -153,7 +166,9 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         host = user_input[CONF_HOST]
         port = user_input[CONF_PORT]
-        new_unique_id = f"{host}:{port}"
+        new_unique_id = build_unique_id(
+            host, port, user_input.get(CONF_UNIT_ID, DEFAULT_UNIT_ID)
+        )
 
         try:
             await self._async_validate_input(user_input)
@@ -168,7 +183,7 @@ class AbbTerraAcConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         except ValueError as err:
             errors["base"] = str(err)
-        except (asyncio.TimeoutError, ModbusIOException):
+        except TimeoutError:
             errors["base"] = "timeout"
         except AbortFlow:
             raise
